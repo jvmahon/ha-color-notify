@@ -1,0 +1,61 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Select an type to create",
+        "menu_options": {
+          "new_pool": "New Notification Collection",
+          "new_light": "New Light"
+        },
+        "data": {
+          "entity_id": "Light to use",
+          "name": "Name of new Notifiaction Light"
+        }
+      },
+      "new_pool": {
+        "title": "Pick a name for the new collection",
+        "data": {
+          "name": "Collection name"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "pool_init": {
+        "description": "Configure Pool Items",
+        "menu_options": {
+          "add_notification": "Create a new notification",
+          "add_notification_sample": "Create a new notification (with pattern sample)",
+          "modify_notification_select": "Modify an existing notification",
+          "delete_notification": "Delete existing notifications"
+        }
+      },
+      "add_notification": {
+        "description": "Set up the new notification below.\nColor Picker can set a solid color or look up #RRGGBB values for pattern use.\nCreate a pattern by using the +Add button (see sample flow)\nAuto-Clear with a 0s timeout clears immediately after pattern finishes.\nLarger numbers are higher priority.",
+        "data": {
+          "name": "Name for notification",
+          "expire_enabled": "Automatically clear after timeout?",
+          "delay_time": "Auto-clear timeout",
+          "pattern": "'#0000FF', '#FF0000,10', '[' or '], loopcnt'",
+          "color_picker": "Select a color, or '+Add' pattern"
+        }
+      },
+      "modify_notification_select": {
+        "description": "Modify an existing notification.",
+        "data": {
+          "unique_id": "Select the notification to modify."
+        }
+      },
+      "modify_notification": {
+        "description": "Set up the notification below.\nColor Picker can set a solid color or look up #RRGGBB values for pattern use.\nCreate a pattern by using the +Add button.\nuto-Clear with a 0s timeout clears immediately after pattern finishes.\nLarger numbers are higher priority."
+      },
+      "delete_notification": {
+        "description": "Delete existing notifications.",
+        "data": {
+          "delete_uuids": "Select items to delete"
+        }
+      }
+    }
+  }
+}
