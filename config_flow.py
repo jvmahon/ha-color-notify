@@ -42,32 +42,48 @@ from .const import (
     DOMAIN,
     TYPE_LIGHT,
     TYPE_POOL,
-    TYPE_NOTIFICATION,
     CONF_CUSTOM_TEXT,
     CONF_RGB_SELECTOR,
     CONF_NOTIFY_PATTERN,
-    CONF_EXPIRE_DELAY,
     CONF_EXPIRE_ENABLED,
     CONF_NTFCTN_ENTRIES,
     CONF_PRIORITY,
 )
 
 
+ADD_NOTIFY_DEFAULTS = {
+    CONF_NOTIFY_PATTERN: [],
+    CONF_RGB_SELECTOR: [0, 0, 0],
+    CONF_DELAY_TIME: {"seconds": 0},
+    CONF_EXPIRE_ENABLED: False,
+    CONF_PRIORITY: 1000,
+}
 ADD_NOTIFY_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_NAME): cv.string,
-        vol.Required(CONF_PRIORITY, default=1000): selector.NumberSelector(
+        vol.Required(
+            CONF_PRIORITY, default=ADD_NOTIFY_DEFAULTS[CONF_PRIORITY]
+        ): selector.NumberSelector(
             selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX)
         ),
-        vol.Required(CONF_EXPIRE_ENABLED, default=False): cv.boolean,
-        vol.Optional(CONF_DELAY_TIME): selector.DurationSelector(
-            selector.DurationSelectorConfig()
-        ),
-        vol.Optional(CONF_RGB_SELECTOR): selector.ColorRGBSelector(),
-        vol.Optional(CONF_NOTIFY_PATTERN): selector.TextSelector(
+        vol.Required(
+            CONF_EXPIRE_ENABLED, default=ADD_NOTIFY_DEFAULTS[CONF_EXPIRE_ENABLED]
+        ): cv.boolean,
+        vol.Optional(
+            CONF_DELAY_TIME, default=ADD_NOTIFY_DEFAULTS[CONF_DELAY_TIME]
+        ): selector.DurationSelector(selector.DurationSelectorConfig()),
+        vol.Optional(
+            CONF_RGB_SELECTOR, default=ADD_NOTIFY_DEFAULTS[CONF_RGB_SELECTOR]
+        ): selector.ColorRGBSelector(),
+        vol.Optional(
+            CONF_NOTIFY_PATTERN, default=ADD_NOTIFY_DEFAULTS[CONF_NOTIFY_PATTERN]
+        ): selector.TextSelector(
             selector.TextSelectorConfig(
                 multiple=True,
             )
+        ),
+        vol.Optional(CONF_UNIQUE_ID): selector.ConstantSelector(
+            selector.ConstantSelectorConfig(label="UID", value="")
         ),
     }
 )
@@ -220,17 +236,23 @@ class PoolOptionsFlowHandler(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Launch the Modify Notification Selection form."""
+        if user_input is not None:
+            return await self.async_step_modify_notification(user_input)
+
+        hass_data: dict = self.hass.data[DOMAIN]
+        entry_data: dict = hass_data.get(self.config_entry.entry_id, {})
+        ntfctn_entries: dict[str, dict] = entry_data.get(CONF_NTFCTN_ENTRIES, {})
+        byUuid: dict[str, dict] = ntfctn_entries.get(CONF_UNIQUE_ID, {})
+
         entity_registry = er.async_get(self.hass)
         entries = er.async_entries_for_config_entry(
             entity_registry, self.config_entry.entry_id
         )
         # Set up multi-select
         ntfctn_entities = {
-            e.unique_id: f"{e.original_name} [{e.entity_id}]" for e in entries
+            e.unique_id: f"{byUuid.get(e.unique_id, {}).get(CONF_NAME)} [{e.entity_id}]"
+            for e in entries
         }
-
-        if user_input is not None:
-            return await self.async_step_modify_notification(user_input)
 
         options_schema = vol.Schema(
             {vol.Required(CONF_UNIQUE_ID): vol.In(ntfctn_entities)}
@@ -249,13 +271,19 @@ class PoolOptionsFlowHandler(OptionsFlow):
         item_data: dict = None
         if uuid := user_input.get(CONF_UNIQUE_ID):
             item_data = ntfctn_entries[CONF_UNIQUE_ID][uuid]
-        elif name := user_input.get(CONF_NAME):
-            item_data = ntfctn_entries[CONF_NAME][name]
 
         if item_data is None:
-            return self.async_abort("Can't locate notification to modify")
+            return self.async_abort(reason="Can't locate notification to modify")
 
-        # TODO: Progmatically clone this?
+        if CONF_FORCE_UPDATE in user_input:
+            # FORCE_UPDATE was just a flag to indicate modification is done
+            user_input.pop(CONF_FORCE_UPDATE)
+            return await self.async_step_finish_add_notification(user_input)
+
+        # Merge in default values
+        item_data = {**ADD_NOTIFY_DEFAULTS, **item_data}
+
+        # TODO: Is it possible to progmatically clone this?
         new_schema = ADD_NOTIFY_SCHEMA.extend(
             {
                 vol.Required(CONF_NAME, default=item_data.get(CONF_NAME)): cv.string,
@@ -282,6 +310,19 @@ class PoolOptionsFlowHandler(OptionsFlow):
                         multiple=True,
                     )
                 ),
+                vol.Optional(
+                    CONF_UNIQUE_ID, default=item_data.get(CONF_UNIQUE_ID)
+                ): selector.ConstantSelector(
+                    selector.ConstantSelectorConfig(
+                        label="", value=item_data.get(CONF_UNIQUE_ID)
+                    )
+                ),
+                # Flag to indicate modify_notification has been submitted
+                vol.Optional(
+                    CONF_FORCE_UPDATE, default=True
+                ): selector.ConstantSelector(
+                    selector.ConstantSelectorConfig(label="", value=True)
+                ),
             }
         )
         return self.async_show_form(
@@ -299,6 +340,8 @@ class PoolOptionsFlowHandler(OptionsFlow):
     async def async_step_delete_notification(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        if user_input is not None:
+            pass
         """Launch the Delete Notification form."""
         entity_registry = er.async_get(self.hass)
         entries = er.async_entries_for_config_entry(
@@ -306,9 +349,6 @@ class PoolOptionsFlowHandler(OptionsFlow):
         )
         # Set up multi-select
         ntfctn_entities = {e.entity_id: e.original_name for e in entries}
-
-        if user_input is not None:
-            pass
 
         options_schema = vol.Schema(
             {
@@ -331,9 +371,16 @@ class PoolOptionsFlowHandler(OptionsFlow):
         update_cnt: int = entry_data.get(CONF_FORCE_UPDATE, 0)
         update_cnt += 1
 
-        uuid = uuid4().hex
+        # ensure defaults are set
+        user_input = {**ADD_NOTIFY_DEFAULTS, **user_input}
         name = user_input.get(CONF_NAME)
-        user_input[CONF_UNIQUE_ID] = uuid
+        uuid = user_input.get(CONF_UNIQUE_ID)
+        if uuid is None:
+            uuid = ntfctn_entries.get(CONF_NAME, {}).get(name, {}).get(CONF_UNIQUE_ID)
+            uuid = uuid or uuid4().hex
+            user_input[CONF_UNIQUE_ID] = uuid
+
+        # Add to the entry to hass_data
         ntfctn_entries.setdefault(CONF_UNIQUE_ID, {})[uuid] = user_input
         ntfctn_entries.setdefault(CONF_NAME, {})[name] = user_input
 
@@ -369,18 +416,6 @@ class LightOptionsFlowHandler(OptionsFlow):
                 "coord_config": "Coordinator Config",
             },
         )
-
-    async def async_step_add_device(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Virtual step for when the user is reconfiguring the integration."""
-
-        if user_input is not None:
-            return self.async_create_entry(
-                title="TestEntryTitle", data={"data_key": "data_val"}
-            )
-
-        return self.async_show_form(step_id="test2")
 
     def async_remove(self):
         """Maybe reload ZHA if the flow is aborted."""

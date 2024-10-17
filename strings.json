@@ -48,7 +48,7 @@
         }
       },
       "modify_notification": {
-        "description": "Set up the notification below.\nColor Picker can set a solid color or look up #RRGGBB values for pattern use.\nCreate a pattern by using the +Add button.\nuto-Clear with a 0s timeout clears immediately after pattern finishes.\nLarger numbers are higher priority."
+        "description": "Set up the notification below.\nColor Picker can set a solid color or look up #RRGGBB values for pattern use.\nCreate a pattern by using the +Add button.\nAuto-Clear with a 0s timeout clears immediately after pattern finishes.\nLarger numbers are higher priority."
       },
       "delete_notification": {
         "description": "Delete existing notifications.",
