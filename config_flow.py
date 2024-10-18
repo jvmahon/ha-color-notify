@@ -13,6 +13,7 @@ from homeassistant.components.light import (
     DOMAIN as LIGHT_DOMAIN,
     PLATFORM_SCHEMA as LIGHT_PLATFORM_SCHEMA,
 )
+from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
@@ -27,6 +28,7 @@ from homeassistant.const import (
     CONF_NAME,
     CONF_TYPE,
     CONF_UNIQUE_ID,
+    CONF_ENTITIES,
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er, selector
@@ -480,7 +482,6 @@ class PoolOptionsFlowHandler(OptionsFlow):
         name = user_input.get(CONF_NAME)
         uuid = user_input.get(CONF_UNIQUE_ID)
         if uuid is None:
-            uuid = ntfctn_entries.get(CONF_NAME, {}).get(name, {}).get(CONF_UNIQUE_ID)
             uuid = uuid or uuid4().hex
             user_input[CONF_UNIQUE_ID] = uuid
 
@@ -528,24 +529,28 @@ class LightOptionsFlowHandler(OptionsFlow):
             return self.async_abort(reason="Not implemented")
 
         pools = self._get_all_pools()
-        entity_registry = er.async_get(self.hass)
-        # return er.async_entries_for_config_entry(entity_registry, config_entry_id)
-
-        byUuid = self._get_entries_by_uuid()
-        entities = self._get_all_entities()
-
+        pool_items = [
+            {"value": pool[CONF_UNIQUE_ID], "label": f"{pool[CONF_NAME]}"}
+            for pool in pools
+        ]
         # Set up multi-select
-        ntfctn_entities = {
-            e.unique_id: f"{byUuid.get(e.unique_id, {}).get(CONF_NAME)} [{e.entity_id}]"
-            for e in entities
-        }
         options_schema = vol.Schema(
-            {vol.Required(CONF_UNIQUE_ID): vol.In(ntfctn_entities)}
+            {
+                vol.Optional(TYPE_POOL): selector.SelectSelector(
+                    selector.SelectSelectorConfig(multiple=True, options=pool_items)
+                ),
+                vol.Optional(CONF_ENTITIES): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        multiple=True,
+                        filter=selector.EntityFilterSelectorConfig(
+                            domain=SWITCH_DOMAIN, integration=DOMAIN
+                        ),
+                    )
+                ),
+            }
         )
 
-        return self.async_show_form(
-            step_id="modify_notification_select", data_schema=options_schema
-        )
+        return self.async_show_form(step_id="subscriptions", data_schema=options_schema)
 
     @callback
     def _get_all_pools(self) -> list:
@@ -554,6 +559,18 @@ class LightOptionsFlowHandler(OptionsFlow):
             for uid, entry in HassData.get_domain_data(self.hass).items()
             if entry.get(CONF_TYPE) == TYPE_POOL
         ]
+
+    @callback
+    def _get_all_notifications(self) -> list:
+        return [
+            notification
+            for pool in self._get_all_pools()
+            for notification in self._get_pool_notifications(pool)
+        ]
+
+    @callback
+    def _get_pool_notifications(self, pool: dict) -> list:
+        return list(pool.get(CONF_NTFCTN_ENTRIES, {}).get(CONF_UNIQUE_ID, {}).values())
 
     # @callback
     # def _get_all_notifications(self) -> list:

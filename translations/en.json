@@ -89,6 +89,13 @@
           "subscriptions": "Modify light subscriptions",
           "unique_id": ""
         }
+      },
+      "subscriptions": {
+        "description": "Subscribe to entire pools and/or individual notifications",
+        "data": {
+          "pool": "Notification Pools",
+          "entities": "Individual Notifications"
+        }
       }
     }
   }

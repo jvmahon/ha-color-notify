@@ -44,7 +44,7 @@ async def async_setup_entry(
         new_options.pop(CONF_DELETE)
         hass.config_entries.async_update_entry(config_entry, options=new_options)
         for entity_uid in entities_to_delete:
-            HassData.remove_entity(hass, config_entry, entity_uid)
+            HassData.remove_entity(hass, config_entry.entry_id, entity_uid)
 
     entities_to_add = [
         notify_lighterSwitchEntity(hass, unique_id=uid, name=data[CONF_NAME])
