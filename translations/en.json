@@ -9,13 +9,15 @@
         },
         "data": {
           "entity_id": "Light to use",
-          "name": "Name of new Notifiaction Light"
+          "name": "Name of new Notification Light",
+          "unique_id": ""
         }
       },
       "new_pool": {
         "title": "Pick a name for the new collection",
         "data": {
-          "name": "Collection name"
+          "name": "Collection name",
+          "unique_id": ""
         }
       },
       "new_light": {
@@ -52,13 +54,14 @@
           "expire_enabled": "Automatically clear after timeout?",
           "delay_time": "Auto-clear timeout",
           "pattern": "'#0000FF', '#FF0000,10', '[' or '], loopcnt'",
-          "color_picker": "Select a color, or '+Add' pattern"
+          "color_picker": "Select a color, or '+Add' pattern",
+          "unique_id": ""
         }
       },
       "modify_notification_select": {
         "description": "Modify an existing notification.",
         "data": {
-          "unique_id": "Select the notification to modify."
+          "unique_id": ""
         }
       },
       "modify_notification": {
@@ -69,13 +72,22 @@
           "expire_enabled": "Automatically clear after timeout?",
           "delay_time": "Auto-clear timeout",
           "pattern": "'#0000FF', '#FF0000,10', '[' or '], loopcnt'",
-          "color_picker": "Select a color, or '+Add' pattern"
+          "color_picker": "Select a color, or '+Add' pattern",
+          "unique_id": ""
         }
       },
       "delete_notification": {
         "description": "Delete existing notifications.",
         "data": {
           "delete": "Select notifications to delete"
+        }
+      },
+      "light_init": {
+        "description": "Configure Light",
+        "menu_options": {
+          "light_options": "Change Light Settings",
+          "subscriptions": "Modify light subscriptions",
+          "unique_id": ""
         }
       }
     }
