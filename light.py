@@ -2,29 +2,21 @@
 
 from __future__ import annotations
 
+from typing import Any, Callable
+
 from homeassistant.components.light import LightEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import async_track_state_change_event
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-
-from homeassistant.core import (
-    HomeAssistant,
-    State,
-    Event,
-    EventStateChangedData,
-    EventStateEventData,
-)
-
 from homeassistant.const import (
     CONF_ENTITY_ID,
-    STATE_ON,
-    SERVICE_TURN_ON,
     SERVICE_TURN_OFF,
+    SERVICE_TURN_ON,
+    STATE_ON,
     Platform,
 )
-
-from typing import Any, Callable
+from homeassistant.core import Event, EventStateChangedData, HomeAssistant
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_state_change_event
 
 
 async def async_setup_entry(

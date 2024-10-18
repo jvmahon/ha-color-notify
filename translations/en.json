@@ -17,6 +17,20 @@
         "data": {
           "name": "Collection name"
         }
+      },
+      "new_light": {
+        "title": "Set up the new notification light wrapper",
+        "data": {
+          "name": "Name for new notification light",
+          "color_picker": "Default 'on' color for light",
+          "entity_id": "Light entity to control"
+        }
+      },
+      "step_reconfigure_light": {
+        "title": "Update light settings",
+        "name": "Currently modifying",
+        "entity_id": "Light entity to control",
+        "color_picker": "Default 'on' color for the light"
       }
     }
   },

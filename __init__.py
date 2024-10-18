@@ -5,7 +5,7 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 
-from .const import DOMAIN, TYPE_LIGHT, TYPE_POOL, TYPE_NOTIFICATION
+from .const import DOMAIN, TYPE_LIGHT, TYPE_POOL
 
 from homeassistant.const import Platform, ATTR_NAME, CONF_TYPE
 
@@ -41,18 +41,12 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     return True
 
 
-# TODO Update entry annotation
 async def async_setup_entry(
     hass: HomeAssistant, entry: NotifyLighterConfigEntry
 ) -> bool:
-    """Set up test_test_test from a config entry."""
+    """Set up new entities from a config entry."""
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = dict(entry.data)
-
-    # TODO 1. Create API instance
-    # TODO 2. Validate the API connection (and authentication)
-    # TODO 3. Store an API object for your platforms to access
-    # entry.runtime_data = MyAPI(...)
 
     ok = True
     item_type = entry.data.get(CONF_TYPE, None)
@@ -62,8 +56,6 @@ async def async_setup_entry(
         # Register to reload config if options flow updates it
         await hass.config_entries.async_forward_entry_setups(entry, [Platform.SWITCH])
         entry.async_on_unload(entry.add_update_listener(handle_pool_config_updated))
-    elif item_type == TYPE_NOTIFICATION:
-        pass
     else:
         _LOGGER.error("Unknown entry type '%s'", item_type)
         ok = False
@@ -86,8 +78,6 @@ async def async_unload_entry(
         await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     elif item_type == TYPE_POOL:
         await hass.config_entries.async_unload_platforms(entry, [Platform.SWITCH])
-    elif item_type == TYPE_NOTIFICATION:
-        pass
     else:
         _LOGGER.error("Unknown entry type '%s'", item_type)
     hass.data[DOMAIN].pop(entry.entry_id)
