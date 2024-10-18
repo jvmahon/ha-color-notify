@@ -16,3 +16,5 @@ CONF_EXPIRE_DELAY = "expire_delay"
 CONF_EXPIRE_ENABLED = "expire_enabled"
 CONF_NTFCTN_ENTRIES = "ntfctn_entries"
 CONF_PRIORITY = "priority"
+
+CONF_DELETE = "delete"

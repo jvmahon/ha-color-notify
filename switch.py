@@ -1,35 +1,17 @@
-"""Light platform for Notify Switch-er integration."""
+"""Switch platform for Notify Switch-er integration."""
 
 from __future__ import annotations
 
-from homeassistant.components.switch import SwitchEntity
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import async_track_state_change_event
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-
-from homeassistant.core import (
-    HomeAssistant,
-    State,
-    Event,
-    EventStateChangedData,
-    EventStateEventData,
-)
-
-from homeassistant.const import (
-    CONF_ENTITY_ID,
-    CONF_NAME,
-    CONF_UNIQUE_ID,
-    STATE_ON,
-    SERVICE_TURN_ON,
-    SERVICE_TURN_OFF,
-    Platform,
-)
-
 from typing import Any, Callable
 
-from .const import DOMAIN, CONF_NTFCTN_ENTRIES
-from homeassistant.helpers import selector, translation, entity_registry as er
+from homeassistant.components.switch import SwitchEntity
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_NAME, CONF_UNIQUE_ID
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+from .config_flow import HassData
+from .const import CONF_DELETE, CONF_NTFCTN_ENTRIES, DOMAIN
 
 
 async def async_setup_entry(
@@ -43,11 +25,11 @@ async def async_setup_entry(
     if config_entry.options:
         config.update(config_entry.options)
 
-    entity_registry = er.async_get(hass)
-    existing_entities = er.async_entries_for_config_entry(
-        entity_registry, config_entry.entry_id
-    )
-    existing_unique_ids = {entry.unique_id.lower() for entry in existing_entities}
+    existing_entities = HassData.get_all_entities(hass, config_entry)
+    existing_unique_ids = {
+        entry.unique_id.lower(): entry for entry in existing_entities
+    }
+
     entries: dict[str, dict] = config.get(CONF_NTFCTN_ENTRIES, {})
     # Filter to only add new entries
     new_entities: dict[str, dict] = {
@@ -55,12 +37,23 @@ async def async_setup_entry(
         for uid, data in entries.get(CONF_UNIQUE_ID, {}).items()
         if uid.lower() not in existing_unique_ids
     }
+
+    entities_to_delete: list[str] = config_entry.options.get(CONF_DELETE, [])
+    if entities_to_delete:
+        new_options = dict(config_entry.options)
+        new_options.pop(CONF_DELETE)
+        hass.config_entries.async_update_entry(config_entry, options=new_options)
+        for entity_uid in entities_to_delete:
+            HassData.remove_entity(hass, config_entry, entity_uid)
+
     entities_to_add = [
         notify_lighterSwitchEntity(hass, unique_id=uid, name=data[CONF_NAME])
         for uid, data in new_entities.items()
+        if uid not in entities_to_delete
     ]
 
-    async_add_entities(entities_to_add)
+    if entities_to_add:
+        async_add_entities(entities_to_add)
 
 
 class notify_lighterSwitchEntity(SwitchEntity):

@@ -32,7 +32,7 @@
         }
       },
       "add_notification": {
-        "description": "Set up the new notification below.\nColor Picker can set a solid color or look up #RRGGBB values for pattern use.\nCreate a pattern by using the +Add button (see sample flow)\nAuto-Clear with a 0s timeout clears immediately after pattern finishes.\nLarger numbers are higher priority.",
+        "description": "Set up the notification below.\n&bull;Color Picker can set a solid color or look up #RRGGBB values for pattern use.\n&bull;Create a pattern by using the +Add button.\n&bull;Auto-Clear with a 0s timeout clears immediately after pattern finishes.\n&bull;Any other timeout is measured from notification start.\n&bull;Larger numbers are higher priority.",
         "data": {
           "name": "Name for notification",
           "expire_enabled": "Automatically clear after timeout?",
@@ -48,12 +48,20 @@
         }
       },
       "modify_notification": {
-        "description": "Set up the notification below.\nColor Picker can set a solid color or look up #RRGGBB values for pattern use.\nCreate a pattern by using the +Add button.\nuto-Clear with a 0s timeout clears immediately after pattern finishes.\nLarger numbers are higher priority."
+        "_comment": "[%key:component] references don't seem to work for custom_component. It'd be nice if this could reference above.",
+        "description": "Set up the notification below.\n&bull;Color Picker can set a solid color or look up #RRGGBB values for pattern use.\n&bull;Create a pattern by using the +Add button.\n&bull;Auto-Clear with a 0s timeout clears immediately after pattern finishes.\n&bull;Any other timeout is measured from notification start.\n&bull;Larger numbers are higher priority.",
+        "data": {
+          "name": "Name for notification",
+          "expire_enabled": "Automatically clear after timeout?",
+          "delay_time": "Auto-clear timeout",
+          "pattern": "'#0000FF', '#FF0000,10', '[' or '], loopcnt'",
+          "color_picker": "Select a color, or '+Add' pattern"
+        }
       },
       "delete_notification": {
         "description": "Delete existing notifications.",
         "data": {
-          "delete_uuids": "Select items to delete"
+          "delete": "Select notifications to delete"
         }
       }
     }
