@@ -5,13 +5,14 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from homeassistant.components.switch import SwitchEntity
+from homeassistant.helpers.entity import ToggleEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME, CONF_UNIQUE_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .config_flow import HassData
-from .const import CONF_DELETE, CONF_NTFCTN_ENTRIES, DOMAIN
+from .const import CONF_DELETE, CONF_NTFCTN_ENTRIES
 
 
 async def async_setup_entry(
@@ -46,7 +47,9 @@ async def async_setup_entry(
             HassData.remove_entity(hass, config_entry.entry_id, entity_uid)
 
     entities_to_add = [
-        notify_lighterSwitchEntity(hass, unique_id=uid, name=data[CONF_NAME])
+        notify_lighterSwitchEntity(
+            hass, unique_id=uid, name=data[CONF_NAME], config_entry=config_entry
+        )
         for uid, data in new_entities.items()
         if uid not in entities_to_delete
     ]
@@ -55,17 +58,33 @@ async def async_setup_entry(
         async_add_entities(entities_to_add)
 
 
-class notify_lighterSwitchEntity(SwitchEntity):
+class notify_lighterSwitchEntity(ToggleEntity):
     """notify_lighter Light."""
 
-    def __init__(self, hass: HomeAssistant, unique_id: str, name: str) -> None:
+    def __init__(
+        self, hass: HomeAssistant, unique_id: str, name: str, config_entry: ConfigEntry
+    ) -> None:
         """Initialize notify_lighter light."""
         super().__init__()
         self._hass = hass
         self._attr_name = name
         self._attr_unique_id = unique_id
+        hass_data: dict[str, dict] = HassData.get_ntfctn_entries(
+            hass, config_entry.entry_id
+        )
+        self._attr_extra_data: dict[str, Any] = hass_data.get(CONF_UNIQUE_ID, {}).get(
+            unique_id, {}
+        )
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn the entity on."""
+        self._attr_is_on = True
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn the entity off."""
+        self._attr_is_on = False
 
     @property
     def extra_state_attributes(self) -> dict[str, str]:
         """Return the state attributes."""
-        return {"notify_lighter": True}
+        return self._attr_extra_data
