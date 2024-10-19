@@ -21,10 +21,9 @@ async def async_setup_entry(
 ) -> None:
     """Initialize Notify Light-er config entry."""
     # Update hass.data with any options
-    config = hass.data[DOMAIN][config_entry.entry_id]
+    config = HassData.get_entry_data(hass, config_entry.entry_id)
     if config_entry.options:
         config.update(config_entry.options)
-
     existing_entities = HassData.get_all_entities(hass, config_entry)
     existing_unique_ids = {
         entry.unique_id.lower(): entry for entry in existing_entities

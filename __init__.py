@@ -52,10 +52,11 @@ async def async_setup_entry(
     item_type = entry.data.get(CONF_TYPE, None)
     if item_type == TYPE_LIGHT:
         await hass.config_entries.async_forward_entry_setups(entry, [Platform.LIGHT])
+        entry.async_on_unload(entry.add_update_listener(handle_config_updated))
     elif item_type == TYPE_POOL:
         # Register to reload config if options flow updates it
         await hass.config_entries.async_forward_entry_setups(entry, [Platform.SWITCH])
-        entry.async_on_unload(entry.add_update_listener(handle_pool_config_updated))
+        entry.async_on_unload(entry.add_update_listener(handle_config_updated))
     else:
         _LOGGER.error("Unknown entry type '%s'", item_type)
         ok = False
@@ -63,7 +64,7 @@ async def async_setup_entry(
     return ok
 
 
-async def handle_pool_config_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def handle_config_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Update listener."""
     hass.config_entries.async_schedule_reload(entry.entry_id)
 
@@ -75,7 +76,7 @@ async def async_unload_entry(
     """Unload a config entry."""
     item_type = entry.data.get(CONF_TYPE, None)
     if item_type == TYPE_LIGHT:
-        await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+        await hass.config_entries.async_unload_platforms(entry, [Platform.LIGHT])
     elif item_type == TYPE_POOL:
         await hass.config_entries.async_unload_platforms(entry, [Platform.SWITCH])
     else:

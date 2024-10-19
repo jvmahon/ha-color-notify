@@ -18,6 +18,9 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 
+from .config_flow import HassData
+from .const import CONF_DELETE, CONF_NTFCTN_ENTRIES, DOMAIN
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -26,11 +29,13 @@ async def async_setup_entry(
 ) -> None:
     """Initialize Notify Light-er config entry."""
     registry = er.async_get(hass)
-    # Validate + resolve entity registry id to entity_id
     entity_id = er.async_validate_entity_id(registry, config_entry.data[CONF_ENTITY_ID])
     # TODO Optionally validate config entry options before creating entity
     name = config_entry.title
     unique_id = config_entry.entry_id
+    config = HassData.get_entry_data(hass, config_entry.entry_id)
+    if config_entry.options:
+        config.update(config_entry.options)
 
     async_add_entities([notify_lighterLightEntity(hass, unique_id, name, entity_id)])
 

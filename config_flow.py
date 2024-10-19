@@ -121,6 +121,8 @@ ADD_LIGHT_SCHEMA = vol.Schema(
     }
 )
 
+SUBSCRIPTION_DEFAULTS = {TYPE_POOL: [], CONF_ENTITIES: []}
+
 
 class HassData:
     """Helper functions for access hass_data."""
@@ -193,6 +195,9 @@ class HassData:
 
 class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
     """Handle a config or options flow for Notify Light-er."""
+
+    VERSION = 1
+    MINOR_VERSION = 1
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -311,14 +316,7 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
         return HassData.get_all_entities(self.hass, self.context.get("entry_id", 0))
 
 
-class PoolOptionsFlowHandler(OptionsFlow):
-    """Handle options flow for a Pool"""
-
-    def __init__(self, config_entry: ConfigEntry) -> None:
-        """Initialize options flow."""
-        super().__init__()
-        self.config_entry = config_entry
-
+class HassDataOptionsFlow(OptionsFlow):
     @callback
     def _get_entry_data(self) -> dict[str, dict]:
         return HassData.get_entry_data(self.hass, self.config_entry.entry_id)
@@ -343,6 +341,15 @@ class PoolOptionsFlowHandler(OptionsFlow):
         return self.async_create_entry(
             title=title, data=data | {CONF_FORCE_UPDATE: force_update_cnt}
         )
+
+
+class PoolOptionsFlowHandler(HassDataOptionsFlow):
+    """Handle options flow for a Pool"""
+
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        """Initialize options flow."""
+        super().__init__()
+        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -478,7 +485,7 @@ class PoolOptionsFlowHandler(OptionsFlow):
         ntfctn_entries = self._get_ntfctn_entries()
 
         # ensure defaults are set
-        user_input = {**ADD_NOTIFY_DEFAULTS, **user_input}
+        user_input = ADD_NOTIFY_DEFAULTS | user_input
         name = user_input.get(CONF_NAME)
         uuid = user_input.get(CONF_UNIQUE_ID)
         if uuid is None:
@@ -492,7 +499,7 @@ class PoolOptionsFlowHandler(OptionsFlow):
         return await self._async_trigger_conf_update(data=self._get_entry_data())
 
 
-class LightOptionsFlowHandler(OptionsFlow):
+class LightOptionsFlowHandler(HassDataOptionsFlow):
     """Handle an options flow."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:
@@ -526,20 +533,26 @@ class LightOptionsFlowHandler(OptionsFlow):
     ) -> ConfigFlowResult:
         """Launch the Notification Subscriptions form."""
         if user_input is not None:
-            return self.async_abort(reason="Not implemented")
+            return await self.async_step_finish_subscriptions(user_input)
 
         pools = self._get_all_pools()
         pool_items = [
             {"value": pool[CONF_UNIQUE_ID], "label": f"{pool[CONF_NAME]}"}
             for pool in pools
         ]
+
         # Set up multi-select
-        options_schema = vol.Schema(
+        defaults: dict[str, dict] = SUBSCRIPTION_DEFAULTS | self._get_ntfctn_entries()
+        schema = vol.Schema(
             {
-                vol.Optional(TYPE_POOL): selector.SelectSelector(
+                vol.Optional(
+                    TYPE_POOL, default=defaults.get(TYPE_POOL)
+                ): selector.SelectSelector(
                     selector.SelectSelectorConfig(multiple=True, options=pool_items)
                 ),
-                vol.Optional(CONF_ENTITIES): selector.EntitySelector(
+                vol.Optional(
+                    CONF_ENTITIES, default=defaults.get(CONF_ENTITIES)
+                ): selector.EntitySelector(
                     selector.EntitySelectorConfig(
                         multiple=True,
                         filter=selector.EntityFilterSelectorConfig(
@@ -549,8 +562,17 @@ class LightOptionsFlowHandler(OptionsFlow):
                 ),
             }
         )
+        schema = self.add_suggested_values_to_schema(schema, suggested_values=defaults)
 
-        return self.async_show_form(step_id="subscriptions", data_schema=options_schema)
+        return self.async_show_form(step_id="subscriptions", data_schema=schema)
+
+    async def async_step_finish_subscriptions(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Finalize adding the notification."""
+        # Add to the entry to hass_data ensuring defaults are set
+        self._get_ntfctn_entries().update(SUBSCRIPTION_DEFAULTS | user_input)
+        return await self._async_trigger_conf_update(data=self._get_entry_data())
 
     @callback
     def _get_all_pools(self) -> list:
