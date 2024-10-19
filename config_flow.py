@@ -121,6 +121,8 @@ ADD_LIGHT_SCHEMA = vol.Schema(
     }
 )
 
+MODIFY_LIGHT_DEFAULTS = {CONF_PRIORITY: 1000, CONF_RGB_SELECTOR: WARM_WHITE_RGB}
+
 SUBSCRIPTION_DEFAULTS = {TYPE_POOL: [], CONF_ENTITIES: []}
 
 
@@ -135,14 +137,14 @@ class HassData:
 
     @callback
     @staticmethod
-    def get_entry_data(hass: HomeAssistant, config_entry_id: int) -> dict[str, dict]:
+    def get_entry_data(hass: HomeAssistant, config_entry_id: str) -> dict[str, dict]:
         """Return hass_data entries for a ConfigEntry."""
         return HassData.get_domain_data(hass).setdefault(config_entry_id, {})
 
     @callback
     @staticmethod
     def get_ntfctn_entries(
-        hass: HomeAssistant, config_entry_id: int
+        hass: HomeAssistant, config_entry_id: str
     ) -> dict[str, dict]:
         """Return notification entries."""
         return HassData.get_entry_data(hass, config_entry_id).setdefault(
@@ -152,7 +154,7 @@ class HassData:
     @callback
     @staticmethod
     def get_entries_by_uuid(
-        hass: HomeAssistant, config_entry_id: int
+        hass: HomeAssistant, config_entry_id: str
     ) -> dict[str, dict]:
         """Return notification entries by uuid."""
         return HassData.get_ntfctn_entries(hass, config_entry_id).setdefault(
@@ -162,7 +164,7 @@ class HassData:
     @callback
     @staticmethod
     def get_all_entities(
-        hass: HomeAssistant, config_entry_id: int
+        hass: HomeAssistant, config_entry_id: str
     ) -> list[er.RegistryEntry]:
         """Get all entities from a given config_entry."""
         entity_registry = er.async_get(hass)
@@ -171,7 +173,7 @@ class HassData:
     @callback
     @staticmethod
     def remove_entity(
-        hass: HomeAssistant, config_entry_id: int, unique_id: str
+        hass: HomeAssistant, config_entry_id: str, unique_id: str
     ) -> bool:
         """Remove an entity by unique id"""
         ret: bool = False
@@ -317,21 +319,24 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
 
 
 class HassDataOptionsFlow(OptionsFlow):
+    def __init__(self, config_entry: ConfigEntry):
+        self._config_entry = config_entry
+
     @callback
     def _get_entry_data(self) -> dict[str, dict]:
-        return HassData.get_entry_data(self.hass, self.config_entry.entry_id)
+        return HassData.get_entry_data(self.hass, self._config_entry.entry_id)
 
     @callback
     def _get_ntfctn_entries(self) -> dict[str, dict]:
-        return HassData.get_ntfctn_entries(self.hass, self.config_entry.entry_id)
+        return HassData.get_ntfctn_entries(self.hass, self._config_entry.entry_id)
 
     @callback
     def _get_entries_by_uuid(self) -> dict[str, dict]:
-        return HassData.get_entries_by_uuid(self.hass, self.config_entry.entry_id)
+        return HassData.get_entries_by_uuid(self.hass, self._config_entry.entry_id)
 
     @callback
     def _get_all_entities(self) -> list[er.RegistryEntry]:
-        return HassData.get_all_entities(self.hass, self.config_entry.entry_id)
+        return HassData.get_all_entities(self.hass, self._config_entry.entry_id)
 
     async def _async_trigger_conf_update(
         self, title: str | None = None, data: dict | None = None
@@ -348,8 +353,7 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
 
     def __init__(self, config_entry: ConfigEntry) -> None:
         """Initialize options flow."""
-        super().__init__()
-        self.config_entry = config_entry
+        super().__init__(config_entry)
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -457,7 +461,7 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
 
         entity_registry = er.async_get(self.hass)
         entries = er.async_entries_for_config_entry(
-            entity_registry, self.config_entry.entry_id
+            entity_registry, self._config_entry.entry_id
         )
         byUuid = self._get_entries_by_uuid()
 
@@ -504,8 +508,7 @@ class LightOptionsFlowHandler(HassDataOptionsFlow):
 
     def __init__(self, config_entry: ConfigEntry) -> None:
         """Initialize options flow."""
-        super().__init__()
-        self.config_entry = config_entry
+        super().__init__(config_entry)
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -526,7 +529,28 @@ class LightOptionsFlowHandler(HassDataOptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Launch the options flow."""
-        return self.async_abort(reason="Not implemented")
+        if user_input is not None:
+            return self.async_abort(reason="Not implemented")
+
+        # Don't list lights created by this integration
+        exclude_entities = self._get_all_light_entity_ids()
+
+        # Set up multi-select
+        defaults: dict[str, dict] = MODIFY_LIGHT_DEFAULTS | self._get_entry_data()
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_NAME): cv.string,
+                vol.Required(CONF_ENTITY_ID): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain=LIGHT_DOMAIN, exclude_entities=exclude_entities
+                    ),
+                ),
+                vol.Optional(CONF_RGB_SELECTOR): selector.ColorRGBSelector(),
+            }
+        )
+        schema = self.add_suggested_values_to_schema(schema, suggested_values=defaults)
+
+        return self.async_show_form(step_id="light_options", data_schema=schema)
 
     async def async_step_subscriptions(
         self, user_input: dict[str, Any] | None = None
@@ -581,6 +605,22 @@ class LightOptionsFlowHandler(HassDataOptionsFlow):
             for uid, entry in HassData.get_domain_data(self.hass).items()
             if entry.get(CONF_TYPE) == TYPE_POOL
         ]
+
+    @callback
+    def _get_all_lights(self) -> list:
+        return [
+            entry
+            for uid, entry in HassData.get_domain_data(self.hass).items()
+            if entry.get(CONF_TYPE) == TYPE_LIGHT
+        ]
+
+    @callback
+    def _get_all_light_entity_ids(self) -> list[str]:
+        entity_registry: er.EntityRegistry = er.async_get(self.hass)
+        ret: list[str] = []
+        for light in self._get_all_lights():
+            pass
+        return ret
 
     @callback
     def _get_all_notifications(self) -> list:

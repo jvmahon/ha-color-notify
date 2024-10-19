@@ -68,7 +68,8 @@ class notify_lighterSwitchEntity(ToggleEntity):
         super().__init__()
         self._hass = hass
         self._attr_name = name
-        self._attr_unique_id = unique_id
+        self._unique_id: str = unique_id
+        self._attr_unique_id: str = f"{self._unique_id}_{self.name}"
         self._attr_is_on = False
         hass_data: dict[str, dict] = HassData.get_ntfctn_entries(
             hass, config_entry.entry_id

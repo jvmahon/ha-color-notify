@@ -61,7 +61,8 @@ class notify_lighterLightEntity(LightEntity):
         self._hass: HomeAssistant = hass
         self._wrapped_entity_id: str = wrapped_entity_id
         self._attr_name: str = name
-        self._attr_unique_id: str = unique_id
+        self._unique_id: str = unique_id
+        self._attr_unique_id: str = f"{self._unique_id}_{self.name}"
         self._config_entry: ConfigEntry = config_entry
 
         self._config_entry.async_on_unload(
@@ -79,12 +80,12 @@ class notify_lighterLightEntity(LightEntity):
         for entity in entity_subs:
             self._config_entry.async_on_unload(
                 async_track_state_change_event(
-                    self._hass, entity, self._handle_switch_change
+                    self._hass, entity, self._handle_notification_change
                 )
             )
 
-    def _handle_switch_change(self, event: Event[EventStateChangedData]) -> None:
-        _LOGGER.warning(f"handle_switch_change: {event}")
+    def _handle_notification_change(self, event: Event[EventStateChangedData]) -> None:
+        _LOGGER.warning(f"_handle_notification_change: {event}")
         pass
 
     async def _handle_wrapped_light_change(
@@ -143,6 +144,11 @@ class notify_lighterLightEntity(LightEntity):
         if entity_state is None:
             return {}
         return entity_state.attributes
+
+    @property
+    def unique_id(self) -> str | None:
+        """Return a unique ID."""
+        return self._attr_unique_id
 
     @property
     def color_mode(self) -> ColorMode | str | None:

@@ -96,6 +96,9 @@
           "pool": "Notification Pools",
           "entities": "Individual Notifications"
         }
+      },
+      "light_options": {
+        "description": "Change light settings"
       }
     }
   }
