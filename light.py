@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from typing import Any, Callable
-
-from homeassistant.components.light import LightEntity
+import logging
+from functools import cached_property
+from homeassistant.components.light import LightEntity, ColorMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_ENTITY_ID,
@@ -22,6 +23,8 @@ from homeassistant.helpers import entity_registry as er
 from .config_flow import HassData
 from .const import TYPE_POOL
 
+_LOGGER = logging.getLogger(__name__)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -31,7 +34,6 @@ async def async_setup_entry(
     """Initialize Notify Light-er config entry."""
     registry = er.async_get(hass)
     entity_id = er.async_validate_entity_id(registry, config_entry.data[CONF_ENTITY_ID])
-    # TODO Optionally validate config entry options before creating entity
     name = config_entry.title
     unique_id = config_entry.entry_id
     config = HassData.get_entry_data(hass, config_entry.entry_id)
@@ -81,15 +83,26 @@ class notify_lighterLightEntity(LightEntity):
                 )
             )
 
-    def __del__(self) -> None:
-        if callable(self._unsub_updates):
-            self._unsub_updates()
-
     def _handle_switch_change(self, event: Event[EventStateChangedData]) -> None:
+        _LOGGER.warning(f"handle_switch_change: {event}")
         pass
 
-    def _handle_wrapped_light_change(self, event: Event[EventStateChangedData]) -> None:
-        self._attr_is_on = event.data["new_state"] == STATE_ON
+    async def _handle_wrapped_light_change(
+        self, event: Event[EventStateChangedData]
+    ) -> None:
+        if event.data["old_state"] is None:
+            self._handle_wrapped_light_init()
+        self._attr_is_on = event.data["new_state"].state == STATE_ON
+        self.async_schedule_update_ha_state()
+
+    def _handle_wrapped_light_init(self) -> None:
+        """Handle wrapped light entity initializing."""
+        entity_registry: er.EntityRegistry = er.async_get(self.hass)
+        entity: er.RegistryEntry | None = entity_registry.async_get(
+            self._wrapped_entity_id
+        )
+        if entity:
+            self._attr_capability_attributes = dict(entity.capabilities)
 
     def is_on(self, hass: HomeAssistant, entity_id: str) -> bool:
         """Return if the lights are on based on the statemachine."""
@@ -101,7 +114,7 @@ class notify_lighterLightEntity(LightEntity):
         self._hass.services.call(
             Platform.LIGHT,
             SERVICE_TURN_ON,
-            target={"entity_id": self._wrapped_entity_id},
+            target={"entity_id": self._wrapped_entity_id} | kwargs,
         )
 
     def turn_off(self, **kwargs: Any) -> None:
@@ -110,10 +123,34 @@ class notify_lighterLightEntity(LightEntity):
         self._hass.services.call(
             Platform.LIGHT,
             SERVICE_TURN_OFF,
-            target={"entity_id": self._wrapped_entity_id},
+            target={"entity_id": self._wrapped_entity_id} | kwargs,
         )
 
-    @property
+    @cached_property
     def extra_state_attributes(self) -> dict[str, str]:
         """Return the state attributes."""
         return {"notify_lighter": True}
+
+    @property
+    def capability_attributes(self) -> dict[str, Any] | None:
+        """Return the capability attributes of the underlying light entity."""
+        return self._attr_capability_attributes
+
+    @property
+    def state_attributes(self) -> dict[str, Any]:
+        """Return the state attributes."""
+        entity_state = self.hass.states.get(self._wrapped_entity_id)
+        if entity_state is None:
+            return {}
+        return entity_state.attributes
+
+    @property
+    def color_mode(self) -> ColorMode | str | None:
+        """Return the color mode of the light."""
+        _LOGGER.warning(f"color_mode")
+        return self._attr_color_mode
+
+    @property
+    def supported_color_modes(self) -> set[str] | None:
+        _LOGGER.warning(f"supported_color_modes")
+        return self.state_attributes.get("supported_color_modes", {})

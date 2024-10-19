@@ -42,7 +42,7 @@
         "description": "Configure Pool Items",
         "menu_options": {
           "add_notification": "Create a new notification",
-          "add_notification_sample": "Create a new notification (with pattern sample)",
+          "add_notification_sample": "Create a new notification (with sample pattern)",
           "modify_notification_select": "Modify an existing notification",
           "delete_notification": "Delete existing notifications"
         }
