@@ -2,33 +2,29 @@
 
 from __future__ import annotations
 
-from contextlib import suppress
+import copy
 import logging
 from typing import Any
 from uuid import uuid4
 
 import voluptuous as vol
 
-from homeassistant.components.light import (
-    DOMAIN as LIGHT_DOMAIN,
-    PLATFORM_SCHEMA as LIGHT_PLATFORM_SCHEMA,
-)
+from homeassistant.components.light import DOMAIN as LIGHT_DOMAIN
 from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
-    OperationNotAllowed,
     OptionsFlow,
 )
 from homeassistant.const import (
     CONF_DELAY_TIME,
+    CONF_ENTITIES,
     CONF_ENTITY_ID,
     CONF_FORCE_UPDATE,
     CONF_NAME,
     CONF_TYPE,
     CONF_UNIQUE_ID,
-    CONF_ENTITIES,
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er, selector
@@ -38,13 +34,13 @@ from .const import (
     CONF_DELETE,
     CONF_EXPIRE_ENABLED,
     CONF_NOTIFY_PATTERN,
-    CONF_NTFCTN_ENTRIES,
     CONF_PRIORITY,
     CONF_RGB_SELECTOR,
     DOMAIN,
     TYPE_LIGHT,
     TYPE_POOL,
 )
+from .hass_data import HassData
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -85,24 +81,12 @@ ADD_NOTIFY_SCHEMA = vol.Schema(
     }
 )
 
-ADD_NOTIFY_SAMPLE_SCHEMA = ADD_NOTIFY_SCHEMA.extend(
-    {
-        vol.Optional(
-            CONF_NOTIFY_PATTERN,
-            default=["[", "#FF0000,250", "#0000FF,250", "],3", "#FFFFFF"],
-        ): selector.TextSelector(
-            selector.TextSelectorConfig(
-                multiple=True,
-            )
-        ),
-    }
-)
-
 ADD_POOL_SCHEMA = vol.Schema({vol.Required(CONF_NAME): cv.string})
 
 ADD_LIGHT_DEFAULTS = {
     CONF_NAME: "New Notification Light",
     CONF_RGB_SELECTOR: WARM_WHITE_RGB,
+    CONF_PRIORITY: 1000,
 }
 ADD_LIGHT_SCHEMA = vol.Schema(
     {
@@ -113,81 +97,36 @@ ADD_LIGHT_SCHEMA = vol.Schema(
         vol.Optional(
             CONF_RGB_SELECTOR, default=ADD_LIGHT_DEFAULTS[CONF_RGB_SELECTOR]
         ): selector.ColorRGBSelector(),
+        vol.Optional(
+            CONF_PRIORITY, default=ADD_LIGHT_DEFAULTS[CONF_PRIORITY]
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX)
+        ),
     }
 )
 
-MODIFY_LIGHT_DEFAULTS = {CONF_PRIORITY: 1000, CONF_RGB_SELECTOR: WARM_WHITE_RGB}
-
 SUBSCRIPTION_DEFAULTS = {TYPE_POOL: [], CONF_ENTITIES: []}
-
-
-class HassData:
-    """Helper functions for access hass_data."""
-
-    @callback
-    @staticmethod
-    def get_domain_data(hass: HomeAssistant) -> dict[str, dict]:
-        """Return the domain hass_data"""
-        return hass.data[DOMAIN]
-
-    @callback
-    @staticmethod
-    def get_entry_data(hass: HomeAssistant, config_entry_id: str) -> dict[str, dict]:
-        """Return hass_data entries for a ConfigEntry."""
-        return HassData.get_domain_data(hass).setdefault(config_entry_id, {})
-
-    @callback
-    @staticmethod
-    def get_ntfctn_entries(
-        hass: HomeAssistant, config_entry_id: str
-    ) -> dict[str, dict]:
-        """Return notification entries."""
-        return HassData.get_entry_data(hass, config_entry_id).setdefault(
-            CONF_NTFCTN_ENTRIES, {}
-        )
-
-    @callback
-    @staticmethod
-    def get_entries_by_uuid(
-        hass: HomeAssistant, config_entry_id: str
-    ) -> dict[str, dict]:
-        """Return notification entries by uuid."""
-        return HassData.get_ntfctn_entries(hass, config_entry_id).setdefault(
-            CONF_UNIQUE_ID, {}
-        )
-
-    @callback
-    @staticmethod
-    def get_all_entities(
-        hass: HomeAssistant, config_entry_id: str
-    ) -> list[er.RegistryEntry]:
-        """Get all entities from a given config_entry."""
-        entity_registry = er.async_get(hass)
-        return er.async_entries_for_config_entry(entity_registry, config_entry_id)
-
-    @callback
-    @staticmethod
-    def remove_entity(
-        hass: HomeAssistant, config_entry_id: str, unique_id: str
-    ) -> bool:
-        """Remove an entity by unique id"""
-        ret: bool = False
-        entity_info = HassData.get_entries_by_uuid(hass, config_entry_id).get(
-            unique_id, {}
-        )
-        if entity_info:
-            HassData.get_entries_by_uuid(hass, config_entry_id).pop(
-                entity_info[CONF_UNIQUE_ID]
+SUBSCRIPTION_SCHEMA = vol.Schema(
+    {
+        vol.Optional(
+            TYPE_POOL, default=SUBSCRIPTION_DEFAULTS.get(TYPE_POOL)
+        ): selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                multiple=True, options=SUBSCRIPTION_DEFAULTS.get(TYPE_POOL)
             )
-            all_entities = HassData.get_all_entities(hass, config_entry_id)
-            entity = next(
-                (item for item in all_entities if item.unique_id == unique_id), None
+        ),
+        vol.Optional(
+            CONF_ENTITIES, default=SUBSCRIPTION_DEFAULTS.get(CONF_ENTITIES)
+        ): selector.EntitySelector(
+            selector.EntitySelectorConfig(
+                multiple=True,
+                filter=selector.EntityFilterSelectorConfig(
+                    domain=SWITCH_DOMAIN, integration=DOMAIN
+                ),
             )
-            if entity:
-                entity_registry = er.async_get(hass)
-                entity_registry.async_remove(entity.entity_id)
-                ret = True
-        return ret
+        ),
+    }
+)
 
 
 class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
@@ -200,10 +139,7 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle a flow initialized by the user."""
-        menu_options = ["new_pool", "new_light"]
-        return self.async_show_menu(
-            menu_options=menu_options,
-        )
+        return self.async_show_menu(menu_options=["new_pool", "new_light"])
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
@@ -281,7 +217,17 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
                 title=f"[Light] {user_input[CONF_NAME]}",
                 data=user_input | {CONF_TYPE: TYPE_LIGHT},
             )
-        return self.async_show_form(step_id="new_light", data_schema=ADD_LIGHT_SCHEMA)
+
+        exclude_entities = HassData.get_domain_light_entity_ids(self.hass)
+        exclude_entities.extend(HassData.get_wrapped_light_entity_ids(self.hass))
+        schema = {k: copy.copy(v) for k, v in ADD_LIGHT_SCHEMA.schema.items()}
+        schema[CONF_ENTITY_ID] = selector.EntitySelector(
+            selector.EntitySelectorConfig(
+                domain=LIGHT_DOMAIN, exclude_entities=exclude_entities
+            )
+        )
+
+        return self.async_show_form(step_id="new_light", data_schema=vol.Schema(schema))
 
     @staticmethod
     @callback
@@ -385,9 +331,19 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Launch the Add Notification form with sample."""
-        return self.async_show_form(
-            step_id="add_notification", data_schema=ADD_NOTIFY_SAMPLE_SCHEMA
+
+        # Insert a sample pattern into the Add Notify schema
+        sample_pattern = ["[", "#FF0000,250", "#0000FF,250", "],3", "#FFFFFF"]
+        defaults = (
+            ADD_LIGHT_DEFAULTS
+            | self._get_entry_data()
+            | {CONF_NOTIFY_PATTERN: sample_pattern}
         )
+        schema = self.add_suggested_values_to_schema(
+            ADD_NOTIFY_SCHEMA, suggested_values=defaults
+        )
+
+        return self.async_show_form(step_id="add_notification", data_schema=schema)
 
     async def async_step_modify_notification_select(
         self, user_input: dict[str, Any] | None = None
@@ -431,6 +387,7 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
         # Merge in default values
         item_data = ADD_NOTIFY_DEFAULTS | item_data | {CONF_FORCE_UPDATE: 1}
 
+        # Add in the extra 'Force Update' flag and Unique ID
         schema = ADD_NOTIFY_SCHEMA.extend(
             {
                 # Flag to indicate modify_notification has been submitted
@@ -528,22 +485,29 @@ class LightOptionsFlowHandler(HassDataOptionsFlow):
         if user_input is not None:
             return self.async_abort(reason="Not implemented")
 
-        # Don't list lights created by this integration
-        exclude_entities = self._get_all_light_entity_ids()
+        # Don't list lights created by this integration or in use
+        exclude_entities = HassData.get_domain_light_entity_ids(self.hass)
+        exclude_entities.extend(HassData.get_wrapped_light_entity_ids(self.hass))
+        # Exclude the current light's wrapped entity
+        entry_id: str = self.handler
+        keep_entity_ids = [
+            x.get(CONF_ENTITY_ID)
+            for x in HassData.get_domain_lights(self.hass)
+            if x.get(CONF_UNIQUE_ID) == entry_id
+        ]
+        for entity_id in keep_entity_ids:
+            if entity_id in exclude_entities:
+                exclude_entities.remove(entity_id)
 
         # Set up multi-select
-        defaults: dict[str, dict] = MODIFY_LIGHT_DEFAULTS | self._get_entry_data()
-        schema = vol.Schema(
-            {
-                vol.Optional(CONF_NAME): cv.string,
-                vol.Required(CONF_ENTITY_ID): selector.EntitySelector(
-                    selector.EntitySelectorConfig(
-                        domain=LIGHT_DOMAIN, exclude_entities=exclude_entities
-                    ),
-                ),
-                vol.Optional(CONF_RGB_SELECTOR): selector.ColorRGBSelector(),
-            }
+        schema = {k: copy.copy(v) for k, v in ADD_LIGHT_SCHEMA.schema.items()}
+        schema[CONF_ENTITY_ID] = selector.EntitySelector(
+            selector.EntitySelectorConfig(
+                domain=LIGHT_DOMAIN, exclude_entities=exclude_entities
+            )
         )
+        schema = vol.Schema(schema)
+        defaults: dict[str, dict] = ADD_LIGHT_DEFAULTS | self._get_entry_data()
         schema = self.add_suggested_values_to_schema(schema, suggested_values=defaults)
 
         return self.async_show_form(step_id="light_options", data_schema=schema)
@@ -555,33 +519,19 @@ class LightOptionsFlowHandler(HassDataOptionsFlow):
         if user_input is not None:
             return await self.async_step_finish_subscriptions(user_input)
 
-        pools = self._get_all_pools()
+        pools = HassData.get_all_pools(self.hass)
         pool_items = [
             {"value": pool[CONF_UNIQUE_ID], "label": f"{pool[CONF_NAME]}"}
             for pool in pools
         ]
 
         # Set up multi-select
-        defaults: dict[str, dict] = SUBSCRIPTION_DEFAULTS | self._get_ntfctn_entries()
-        schema = vol.Schema(
-            {
-                vol.Optional(
-                    TYPE_POOL, default=defaults.get(TYPE_POOL)
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(multiple=True, options=pool_items)
-                ),
-                vol.Optional(
-                    CONF_ENTITIES, default=defaults.get(CONF_ENTITIES)
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(
-                        multiple=True,
-                        filter=selector.EntityFilterSelectorConfig(
-                            domain=SWITCH_DOMAIN, integration=DOMAIN
-                        ),
-                    )
-                ),
-            }
+        schema = {k: copy.copy(v) for k, v in SUBSCRIPTION_SCHEMA.schema.items()}
+        schema[TYPE_POOL] = selector.SelectSelector(
+            selector.SelectSelectorConfig(multiple=True, options=pool_items)
         )
+        schema = vol.Schema(schema)
+        defaults: dict[str, dict] = SUBSCRIPTION_DEFAULTS | self._get_ntfctn_entries()
         schema = self.add_suggested_values_to_schema(schema, suggested_values=defaults)
 
         return self.async_show_form(step_id="subscriptions", data_schema=schema)
@@ -593,46 +543,3 @@ class LightOptionsFlowHandler(HassDataOptionsFlow):
         # Add to the entry to hass_data ensuring defaults are set
         self._get_ntfctn_entries().update(SUBSCRIPTION_DEFAULTS | user_input)
         return await self._async_trigger_conf_update(data=self._get_entry_data())
-
-    @callback
-    def _get_all_pools(self) -> list:
-        return [
-            entry
-            for uid, entry in HassData.get_domain_data(self.hass).items()
-            if entry.get(CONF_TYPE) == TYPE_POOL
-        ]
-
-    @callback
-    def _get_all_lights(self) -> list:
-        return [
-            entry
-            for uid, entry in HassData.get_domain_data(self.hass).items()
-            if entry.get(CONF_TYPE) == TYPE_LIGHT
-        ]
-
-    @callback
-    def _get_all_light_entity_ids(self) -> list[str]:
-        entity_registry: er.EntityRegistry = er.async_get(self.hass)
-        ret: list[str] = []
-        for light in self._get_all_lights():
-            pass
-        return ret
-
-    @callback
-    def _get_all_notifications(self) -> list:
-        return [
-            notification
-            for pool in self._get_all_pools()
-            for notification in self._get_pool_notifications(pool)
-        ]
-
-    @callback
-    def _get_pool_notifications(self, pool: dict) -> list:
-        return list(pool.get(CONF_NTFCTN_ENTRIES, {}).get(CONF_UNIQUE_ID, {}).values())
-
-    # @callback
-    # def _get_all_notifications(self) -> list:
-    #     ret = []
-    #     for pool in self._get_all_pools():
-    #         ret.extend(pool.get_notifications())
-    #     return ret

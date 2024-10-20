@@ -11,7 +11,7 @@ from homeassistant.const import CONF_NAME, CONF_UNIQUE_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .config_flow import HassData
+from .hass_data import HassData
 from .const import CONF_DELETE, CONF_NTFCTN_ENTRIES
 
 
@@ -25,6 +25,7 @@ async def async_setup_entry(
     config = HassData.get_entry_data(hass, config_entry.entry_id)
     if config_entry.options:
         config.update(config_entry.options)
+    config.update({CONF_UNIQUE_ID: config_entry.entry_id})
     existing_entities = HassData.get_all_entities(hass, config_entry)
     existing_unique_ids = {
         entry.unique_id.lower(): entry for entry in existing_entities
@@ -71,6 +72,7 @@ class NotificationSwitchEntity(ToggleEntity):
         self._unique_id: str = unique_id
         self._attr_unique_id: str = self._unique_id
         self._attr_is_on = False
+        self._config_entry: ConfigEntry = config_entry
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""

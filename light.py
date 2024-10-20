@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_ENTITY_ID,
     CONF_ENTITIES,
+    CONF_UNIQUE_ID,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
     STATE_ON,
@@ -20,7 +21,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers import entity_registry as er
-from .config_flow import HassData
+from .hass_data import HassData
 from .const import TYPE_POOL
 
 _LOGGER = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ async def async_setup_entry(
     config = HassData.get_entry_data(hass, config_entry.entry_id)
     if config_entry.options:
         config.update(config_entry.options)
+    config.update({CONF_UNIQUE_ID: unique_id})
 
     async_add_entities(
         [NotificationLightEntity(hass, unique_id, name, entity_id, config_entry)]

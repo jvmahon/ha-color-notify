@@ -98,7 +98,13 @@
         }
       },
       "light_options": {
-        "description": "Change light settings"
+        "description": "Change light settings",
+        "data": {
+          "name": "Notification Light Name",
+          "entity_id": "Light Entity To Use",
+          "color_picker": "'On' color of light",
+          "priority": "'On' priority"
+        }
       }
     }
   }
