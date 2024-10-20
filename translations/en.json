@@ -4,7 +4,7 @@
       "user": {
         "title": "Select an type to create",
         "menu_options": {
-          "new_pool": "New Notification Collection",
+          "new_pool": "New Notification Pool",
           "new_light": "New Light"
         },
         "data": {
@@ -14,9 +14,9 @@
         }
       },
       "new_pool": {
-        "title": "Pick a name for the new collection",
+        "title": "Pick a name for the new pool",
         "data": {
-          "name": "Collection name",
+          "name": "Pool name",
           "unique_id": ""
         }
       },
@@ -61,7 +61,7 @@
       "modify_notification_select": {
         "description": "Modify an existing notification.",
         "data": {
-          "unique_id": ""
+          "unique_id": "Select a notification"
         }
       },
       "modify_notification": {

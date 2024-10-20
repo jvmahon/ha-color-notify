@@ -41,11 +41,11 @@ async def async_setup_entry(
         config.update(config_entry.options)
 
     async_add_entities(
-        [notify_lighterLightEntity(hass, unique_id, name, entity_id, config_entry)]
+        [NotificationLightEntity(hass, unique_id, name, entity_id, config_entry)]
     )
 
 
-class notify_lighterLightEntity(LightEntity):
+class NotificationLightEntity(LightEntity):
     """notify_lighter Light."""
 
     def __init__(
@@ -126,11 +126,6 @@ class notify_lighterLightEntity(LightEntity):
             SERVICE_TURN_OFF,
             target={"entity_id": self._wrapped_entity_id} | kwargs,
         )
-
-    @cached_property
-    def extra_state_attributes(self) -> dict[str, str]:
-        """Return the state attributes."""
-        return {"notify_lighter": True}
 
     @property
     def capability_attributes(self) -> dict[str, Any] | None:

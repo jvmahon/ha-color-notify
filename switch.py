@@ -47,7 +47,7 @@ async def async_setup_entry(
             HassData.remove_entity(hass, config_entry.entry_id, entity_uid)
 
     entities_to_add = [
-        notify_lighterSwitchEntity(
+        NotificationSwitchEntity(
             hass, unique_id=uid, name=data[CONF_NAME], config_entry=config_entry
         )
         for uid, data in new_entities.items()
@@ -58,7 +58,7 @@ async def async_setup_entry(
         async_add_entities(entities_to_add)
 
 
-class notify_lighterSwitchEntity(ToggleEntity):
+class NotificationSwitchEntity(ToggleEntity):
     """notify_lighter Light."""
 
     def __init__(
@@ -69,14 +69,8 @@ class notify_lighterSwitchEntity(ToggleEntity):
         self._hass = hass
         self._attr_name = name
         self._unique_id: str = unique_id
-        self._attr_unique_id: str = f"{self._unique_id}_{self.name}"
+        self._attr_unique_id: str = self._unique_id
         self._attr_is_on = False
-        hass_data: dict[str, dict] = HassData.get_ntfctn_entries(
-            hass, config_entry.entry_id
-        )
-        self._attr_extra_data: dict[str, Any] = hass_data.get(CONF_UNIQUE_ID, {}).get(
-            unique_id, {}
-        )
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
@@ -85,8 +79,3 @@ class notify_lighterSwitchEntity(ToggleEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the entity off."""
         self._attr_is_on = False
-
-    @property
-    def extra_state_attributes(self) -> dict[str, str]:
-        """Return the state attributes."""
-        return self._attr_extra_data

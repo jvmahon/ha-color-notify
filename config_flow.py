@@ -82,8 +82,6 @@ ADD_NOTIFY_SCHEMA = vol.Schema(
                 multiple=True,
             )
         ),
-        # TODO: Find a better way of passing htis along
-        vol.Optional(CONF_UNIQUE_ID): cv.string,
     }
 )
 
@@ -100,9 +98,7 @@ ADD_NOTIFY_SAMPLE_SCHEMA = ADD_NOTIFY_SCHEMA.extend(
     }
 )
 
-ADD_POOL_SCHEMA = vol.Schema(
-    {vol.Required(CONF_NAME): cv.string, vol.Optional(CONF_UNIQUE_ID): cv.string}
-)
+ADD_POOL_SCHEMA = vol.Schema({vol.Required(CONF_NAME): cv.string})
 
 ADD_LIGHT_DEFAULTS = {
     CONF_NAME: "New Notification Light",
@@ -117,7 +113,6 @@ ADD_LIGHT_SCHEMA = vol.Schema(
         vol.Optional(
             CONF_RGB_SELECTOR, default=ADD_LIGHT_DEFAULTS[CONF_RGB_SELECTOR]
         ): selector.ColorRGBSelector(),
-        vol.Optional(CONF_UNIQUE_ID): cv.string,
     }
 )
 
@@ -236,7 +231,7 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             return self.async_update_reload_and_abort(
                 entry,
-                title=f"[Collection] {user_input[CONF_NAME]}",
+                title=f"[Pool] {user_input[CONF_NAME]}",
                 data=user_input | {CONF_TYPE: TYPE_POOL},
                 reason="Changes saved",
             )
@@ -272,8 +267,8 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
         """Handle a New Pool flow."""
         if user_input is not None:
             return self.async_create_entry(
-                title=f"[Collection] {user_input[CONF_NAME]}",
-                data=user_input | {CONF_TYPE: TYPE_POOL, CONF_UNIQUE_ID: uuid4().hex},
+                title=f"[Pool] {user_input[CONF_NAME]}",
+                data=user_input | {CONF_TYPE: TYPE_POOL},
             )
         return self.async_show_form(step_id="new_pool", data_schema=ADD_POOL_SCHEMA)
 
@@ -284,7 +279,7 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             return self.async_create_entry(
                 title=f"[Light] {user_input[CONF_NAME]}",
-                data=user_input | {CONF_TYPE: TYPE_LIGHT, CONF_UNIQUE_ID: uuid4().hex},
+                data=user_input | {CONF_TYPE: TYPE_LIGHT},
             )
         return self.async_show_form(step_id="new_light", data_schema=ADD_LIGHT_SCHEMA)
 
@@ -421,7 +416,7 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Launch the Modify Notification form."""
-        item_data: dict = None
+        item_data: dict | None = None
         if uuid := user_input.get(CONF_UNIQUE_ID):
             item_data = self._get_entries_by_uuid().get(uuid)
 
@@ -441,6 +436,9 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
                 # Flag to indicate modify_notification has been submitted
                 vol.Optional(CONF_FORCE_UPDATE): selector.ConstantSelector(
                     selector.ConstantSelectorConfig(label="", value=True)
+                ),
+                vol.Optional(CONF_UNIQUE_ID): selector.ConstantSelector(
+                    selector.ConstantSelectorConfig(label="", value=uuid)
                 ),
             }
         )
@@ -490,7 +488,6 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
 
         # ensure defaults are set
         user_input = ADD_NOTIFY_DEFAULTS | user_input
-        name = user_input.get(CONF_NAME)
         uuid = user_input.get(CONF_UNIQUE_ID)
         if uuid is None:
             uuid = uuid or uuid4().hex
@@ -498,7 +495,6 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
 
         # Add to the entry to hass_data
         ntfctn_entries.setdefault(CONF_UNIQUE_ID, {})[uuid] = user_input
-        ntfctn_entries.setdefault(CONF_NAME, {})[name] = user_input
 
         return await self._async_trigger_conf_update(data=self._get_entry_data())
 
