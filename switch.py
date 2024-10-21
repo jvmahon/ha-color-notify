@@ -69,8 +69,7 @@ class NotificationSwitchEntity(ToggleEntity):
         super().__init__()
         self._hass = hass
         self._attr_name = name
-        self._unique_id: str = unique_id
-        self._attr_unique_id: str = self._unique_id
+        self._attr_unique_id: str = unique_id
         self._attr_is_on = False
         self._config_entry: ConfigEntry = config_entry
 

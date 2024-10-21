@@ -15,3 +15,8 @@ CONF_NTFCTN_ENTRIES: Final = "ntfctn_entries"
 CONF_PRIORITY: Final = "priority"
 CONF_DELETE: Final = "delete"
 CONF_ENTRY_ID: Final = "entry_id"
+
+OFF_RGB: Final = (0, 0, 0)
+WARM_WHITE_RGB: Final = (255, 249, 216)
+
+DEFAULT_PRIORITY: Final = 1000

@@ -39,12 +39,13 @@ from .const import (
     DOMAIN,
     TYPE_LIGHT,
     TYPE_POOL,
+    WARM_WHITE_RGB,
+    DEFAULT_PRIORITY,
 )
 from .hass_data import HassData
 
 _LOGGER = logging.getLogger(__name__)
 
-WARM_WHITE_RGB = [255, 249, 216]
 
 ADD_NOTIFY_DEFAULTS = {
     CONF_NAME: "New Notification Name",
@@ -52,7 +53,7 @@ ADD_NOTIFY_DEFAULTS = {
     CONF_RGB_SELECTOR: WARM_WHITE_RGB,
     CONF_DELAY_TIME: {"seconds": 0},
     CONF_EXPIRE_ENABLED: False,
-    CONF_PRIORITY: 1000,
+    CONF_PRIORITY: DEFAULT_PRIORITY,
 }
 ADD_NOTIFY_SCHEMA = vol.Schema(
     {
@@ -86,7 +87,7 @@ ADD_POOL_SCHEMA = vol.Schema({vol.Required(CONF_NAME): cv.string})
 ADD_LIGHT_DEFAULTS = {
     CONF_NAME: "New Notification Light",
     CONF_RGB_SELECTOR: WARM_WHITE_RGB,
-    CONF_PRIORITY: 1000,
+    CONF_PRIORITY: DEFAULT_PRIORITY,
 }
 ADD_LIGHT_SCHEMA = vol.Schema(
     {
