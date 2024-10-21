@@ -34,7 +34,9 @@ async def async_setup_entry(
 ) -> None:
     """Initialize Notify Light-er config entry."""
     registry = er.async_get(hass)
-    entity_id = er.async_validate_entity_id(registry, config_entry.data[CONF_ENTITY_ID])
+    wrapped_entity_id = er.async_validate_entity_id(
+        registry, config_entry.data[CONF_ENTITY_ID]
+    )
     name = config_entry.title
     unique_id = config_entry.entry_id
     config = HassData.get_entry_data(hass, config_entry.entry_id)
@@ -43,7 +45,11 @@ async def async_setup_entry(
     config.update({CONF_UNIQUE_ID: unique_id})
 
     async_add_entities(
-        [NotificationLightEntity(hass, unique_id, name, entity_id, config_entry)]
+        [
+            NotificationLightEntity(
+                hass, unique_id, name, wrapped_entity_id, config_entry
+            )
+        ]
     )
 
 
@@ -64,7 +70,7 @@ class NotificationLightEntity(LightEntity):
         self._wrapped_entity_id: str = wrapped_entity_id
         self._attr_name: str = name
         self._unique_id: str = unique_id
-        self._attr_unique_id: str = f"{self._unique_id}_{self.name}"
+        self._attr_unique_id: str = f"{self._unique_id}"
         self._config_entry: ConfigEntry = config_entry
 
         self._config_entry.async_on_unload(
