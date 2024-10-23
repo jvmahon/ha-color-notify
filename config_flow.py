@@ -36,11 +36,11 @@ from .const import (
     CONF_NOTIFY_PATTERN,
     CONF_PRIORITY,
     CONF_RGB_SELECTOR,
+    DEFAULT_PRIORITY,
     DOMAIN,
     TYPE_LIGHT,
     TYPE_POOL,
     WARM_WHITE_RGB,
-    DEFAULT_PRIORITY,
 )
 from .hass_data import HassData
 
@@ -353,14 +353,9 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
         if user_input is not None:
             return await self.async_step_modify_notification(user_input)
 
-        byUuid = self._get_entries_by_uuid()
-        entities = self._get_all_entities()
-
-        # Set up multi-select
-        ntfctn_unique_ids = {
-            e.unique_id: f"{byUuid.get(e.unique_id, {}).get(CONF_NAME)} [{e.entity_id}]"
-            for e in entities
-        }
+        ntfctn_unique_ids = HassData.get_config_notification_list(
+            self.hass, self._config_entry.entry_id
+        )
         options_schema = vol.Schema(
             {vol.Required(CONF_UNIQUE_ID): vol.In(ntfctn_unique_ids)}
         )
@@ -415,22 +410,13 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
             entry_data[CONF_DELETE] = user_input.get(CONF_DELETE, [])
             return await self._async_trigger_conf_update(data=entry_data)
 
-        entity_registry = er.async_get(self.hass)
-        entries = er.async_entries_for_config_entry(
-            entity_registry, self._config_entry.entry_id
+        ntfctn_unique_ids = HassData.get_config_notification_list(
+            self.hass, self._config_entry.entry_id
         )
-        byUuid = self._get_entries_by_uuid()
-
-        # Set up multi-select
-        ntfctn_entities = {e.entity_id: e.original_name for e in entries}
-        ntfctn_entities = {
-            e.unique_id: f"{byUuid.get(e.unique_id, {}).get(CONF_NAME)} [{e.entity_id}]"
-            for e in entries
-        }
 
         options_schema = vol.Schema(
             {
-                vol.Optional(CONF_DELETE): cv.multi_select(ntfctn_entities),
+                vol.Optional(CONF_DELETE): cv.multi_select(ntfctn_unique_ids),
             }
         )
         return self.async_show_form(
