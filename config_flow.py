@@ -26,7 +26,7 @@ from homeassistant.const import (
     CONF_TYPE,
     CONF_UNIQUE_ID,
 )
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import callback
 from homeassistant.helpers import entity_registry as er, selector
 import homeassistant.helpers.config_validation as cv
 
@@ -511,6 +511,8 @@ class LightOptionsFlowHandler(HassDataOptionsFlow):
             {"value": pool[CONF_UNIQUE_ID], "label": f"{pool[CONF_NAME]}"}
             for pool in pools
         ]
+        # TODO: Set up pool subscriptions
+        # TODO: Update light when pool subscriptions change
 
         # Set up multi-select
         schema = {k: copy.copy(v) for k, v in SUBSCRIPTION_SCHEMA.schema.items()}

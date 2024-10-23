@@ -66,6 +66,9 @@ async def async_setup_entry(
     )
 
 
+# TODO: Could a sequence be its own async worker?
+# TODO: Light 'on' should support customizing RGB
+# TODO: Light 'on' state needs to be saved?
 @dataclass
 class SequenceInfo:
     """A color sequence to queue on the light."""
@@ -108,7 +111,7 @@ class NotificationLightEntity(LightEntity):
         self._sequences: list[SequenceInfo] = [LIGHT_OFF_SEQUENCE]
         self._light_on_sequence: SequenceInfo = SequenceInfo(
             entity_id=STATE_ON,
-            pattern=self._hass_entry.get(CONF_RGB_SELECTOR, WARM_WHITE_RGB),
+            pattern=[self._hass_entry.get(CONF_RGB_SELECTOR, WARM_WHITE_RGB)],
         )
         self._new_sequences: list[SequenceInfo] = []
         self._active_sequence: SequenceInfo | None = None
@@ -182,13 +185,14 @@ class NotificationLightEntity(LightEntity):
                         ):
                             self._active_sequence = self._sequences[0]
                             light_params: dict = {
-                                ATTR_RGB_COLOR: self._active_sequence.pattern[0]
+                                ATTR_RGB_COLOR: tuple(self._active_sequence.pattern[0])
                             }
                             await self._wrapped_light_turn_on(**light_params)
 
                     _LOGGER.warning(self._sequences)
         except Exception as e:
             _LOGGER.error(e)
+        _LOGGER.error("Exiting worker loop")
 
     async def _add_sequence(self, sequence: SequenceInfo) -> None:
         """Add a sequence to this light."""
@@ -269,11 +273,13 @@ class NotificationLightEntity(LightEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
         self._attr_is_on = True
+        self.async_write_ha_state()
         await self._add_sequence(self._light_on_sequence)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the entity off."""
         self._attr_is_on = False
+        self.async_write_ha_state()
         await self._remove_sequence(self._light_on_sequence.entity_id)
 
     async def async_toggle(self, **kwargs: Any) -> None:

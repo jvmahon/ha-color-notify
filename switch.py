@@ -98,11 +98,11 @@ class NotificationSwitchEntity(ToggleEntity, RestoreEntity):
         state = await self.async_get_last_state()
         if state is None:
             return
-        self._attr_is_on = (
-            state.state == STATE_ON
-        )  # TODO: This isn't restoring correctly.z
+        self._attr_is_on = state.state == STATE_ON
 
-        async_dispatcher_connect(self._hass, "DATA_UPDATED", self._test)
+        async_dispatcher_connect(
+            self._hass, "DATA_UPDATED", self._test
+        )  # TODO: needed?
 
     @callback
     def _test(self):
