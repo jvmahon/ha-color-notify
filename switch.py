@@ -88,8 +88,7 @@ class NotificationSwitchEntity(ToggleEntity, RestoreEntity):
         """Turn the entity on."""
         self._attr_is_on = True
         self.async_write_ha_state()
-        if self.extra_state_attributes.get(CONF_EXPIRE_ENABLED, False):
-            self._start_expire_timer()
+        self._start_expire_timer()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the entity off."""
@@ -103,18 +102,16 @@ class NotificationSwitchEntity(ToggleEntity, RestoreEntity):
         if state is None:
             return
         self._attr_is_on = state.state == STATE_ON
-
-        async_dispatcher_connect(
-            self._hass, "DATA_UPDATED", self._test
-        )  # TODO: needed?
-
-    @callback
-    def _test(self):
+        if self.is_on:
+            self._start_expire_timer()
         self.async_schedule_update_ha_state(True)
 
     @callback
     def _start_expire_timer(self):
         self._cancel_expire_timer()
+        if not self.extra_state_attributes.get(CONF_EXPIRE_ENABLED, False):
+            return
+
         expire_time = self.extra_state_attributes.get(CONF_DELAY_TIME, None)
         if expire_time is None:
             return
