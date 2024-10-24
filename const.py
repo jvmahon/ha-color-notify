@@ -14,6 +14,7 @@ CONF_EXPIRE_ENABLED: Final = "expire_enabled"
 CONF_NTFCTN_ENTRIES: Final = "ntfctn_entries"
 CONF_PRIORITY: Final = "priority"
 CONF_DELETE: Final = "delete"
+CONF_ADD: Final = "add"
 CONF_ENTRY_ID: Final = "entry_id"
 
 OFF_RGB: Final = (0, 0, 0)
