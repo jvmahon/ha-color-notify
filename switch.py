@@ -1,19 +1,20 @@
 """Switch platform for Notify Switch-er integration."""
 
+from datetime import timedelta
 from functools import cached_property
+from typing import Any, Callable
 
-from homeassistant.components.switch import SwitchEntity
-from homeassistant.helpers.entity import ToggleEntity
-from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_NAME, CONF_UNIQUE_ID, STATE_ON
+from homeassistant.const import CONF_DELAY_TIME, CONF_NAME, CONF_UNIQUE_ID, STATE_ON
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity import ToggleEntity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.restore_state import RestoreEntity
 
+from .const import CONF_DELETE, CONF_EXPIRE_ENABLED, CONF_NTFCTN_ENTRIES
 from .hass_data import HassData
-from .const import CONF_DELETE, CONF_NTFCTN_ENTRIES
-from typing import Any
 
 
 async def async_setup_entry(
@@ -75,6 +76,7 @@ class NotificationSwitchEntity(ToggleEntity, RestoreEntity):
         self._attr_unique_id: str = unique_id
         self._attr_is_on = False
         self._config_entry: ConfigEntry = config_entry
+        self._timer_callback_canceller: Callable | None = None
         hass_data: dict[str, dict] = HassData.get_ntfctn_entries(
             hass, config_entry.entry_id
         )
@@ -86,6 +88,8 @@ class NotificationSwitchEntity(ToggleEntity, RestoreEntity):
         """Turn the entity on."""
         self._attr_is_on = True
         self.async_write_ha_state()
+        if self.extra_state_attributes.get(CONF_EXPIRE_ENABLED, False):
+            self._start_expire_timer()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the entity off."""
@@ -108,6 +112,26 @@ class NotificationSwitchEntity(ToggleEntity, RestoreEntity):
     def _test(self):
         self.async_schedule_update_ha_state(True)
 
+    @callback
+    def _start_expire_timer(self):
+        self._cancel_expire_timer()
+        expire_time = self.extra_state_attributes.get(CONF_DELAY_TIME, None)
+        if expire_time is None:
+            return
+        delay_sec = timedelta(**expire_time)
+
+        async def turn_off_wrapper(*args, **kwargs):
+            await self.async_turn_off()
+
+        self._timer_callback_canceller = async_call_later(
+            self.hass, delay_sec, turn_off_wrapper
+        )
+
+    @callback
+    def _cancel_expire_timer(self):
+        if self._timer_callback_canceller:
+            self._timer_callback_canceller()
+
     async def async_will_remove_from_hass(self):
         """Clean up before removal from HASS."""
-        pass
+        self._cancel_expire_timer()
