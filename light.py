@@ -12,8 +12,11 @@ from typing import Any
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP,
+    ATTR_COLOR_MODE,
     ATTR_HS_COLOR,
     ATTR_RGB_COLOR,
+    COLOR_MODE_RGB,
+    COLOR_MODE_HS,
     ColorMode,
     LightEntity,
 )
@@ -82,27 +85,70 @@ async def async_setup_entry(
     )
 
 
-# TODO: Could a sequence be its own async worker?
-# TODO: Light 'on' should support customizing RGB
 # TODO: Light 'on' state needs to be saved?
 @dataclass
-class SequenceInfo:
+class _StateInfo:
+    """Information about a single state in a sequence."""
+
+    rgb: tuple = WARM_WHITE_RGB
+    brightness: float = 100.0
+
+
+class _NotifySequence:
     """A color sequence to queue on the light."""
 
-    entity_id: str
-    pattern: tuple | list = field(default_factory=list)
-    priority: int = DEFAULT_PRIORITY
+    def __init__(
+        self,
+        entity_id: str,
+        pattern: list[_StateInfo],
+        priority: int = DEFAULT_PRIORITY,
+    ):
+        self.entity_id = entity_id
+        self.priority = priority
+        self.pattern = pattern
+
+        self._idx: int = 0
+        self._condition: asyncio.Condition = asyncio.Condition()
+        self._should_stop: bool = False
+
+    async def run(self):
+        while True:
+            try:
+                self._run_loop()
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                _LOGGER.exception("Error running sequence for %s", self.entity_id)
+
+    async def _run_loop(self):
+        while True:
+            try:
+                async with self._condition:
+                    await asyncio.wait_for(self._condition.wait(), timeout=5.0)
+            except TimeoutError:
+                pass
+
+    async def transition_from(self, prev_sequence: _NotifySequence | None):
+        prev_sequence.stop()
+        pass
+
+    def stop(self):
+        self._should_stop = True
 
 
-LIGHT_OFF_SEQUENCE = SequenceInfo(entity_id=STATE_OFF, pattern=[OFF_RGB], priority=0)
-LIGHT_ON_SEQUENCE = SequenceInfo(
-    entity_id=STATE_ON, pattern=[WARM_WHITE_RGB], priority=DEFAULT_PRIORITY
+LIGHT_OFF_SEQUENCE = _NotifySequence(
+    entity_id=STATE_OFF, pattern=[_StateInfo(OFF_RGB, 0)], priority=0
+)
+LIGHT_ON_SEQUENCE = _NotifySequence(
+    entity_id=STATE_ON,
+    pattern=[_StateInfo(WARM_WHITE_RGB, 255)],
+    priority=DEFAULT_PRIORITY,
 )
 
 
 @dataclass
-class QueueEntry:
-    sequence: SequenceInfo
+class _QueueEntry:
+    sequence: _NotifySequence
     action: str
 
 
@@ -122,7 +168,6 @@ class NotificationLightEntity(LightEntity):
         """Initialize notify_lighter light."""
         super().__init__()
         # TODO: self.hass auto-becomes available after constructor ends, maybe don't need to pass in copy
-        self._hass: HomeAssistant = hass
         self._wrapped_entity_id: str = wrapped_entity_id
         self._attr_name: str = name
         self._attr_unique_id: str = unique_id
@@ -130,9 +175,9 @@ class NotificationLightEntity(LightEntity):
         self._hass_entry: dict[str, Any] = HassData.get_entry_data(
             hass, config_entry.entry_id
         )
-        self._sequences: list[SequenceInfo] = [LIGHT_OFF_SEQUENCE]
-        self._worker_queue: list[QueueEntry] = []
-        self._active_sequence: SequenceInfo | None = None
+        self._sequences: list[_NotifySequence] = [LIGHT_OFF_SEQUENCE]
+        self._worker_queue: list[_QueueEntry] = []
+        self._active_sequence: _NotifySequence | None = None
         self._should_stop: bool = False
         self._light_on_priority: int = self._config_entry.options.get(
             CONF_PRIORITY, DEFAULT_PRIORITY
@@ -143,17 +188,17 @@ class NotificationLightEntity(LightEntity):
 
         self._condition = asyncio.Condition()
         self._task = config_entry.async_create_background_task(
-            self._hass, self._worker(), name=f"{name} background task"
+            hass, self._worker(), name=f"{name} background task"
         )
 
         self._config_entry.async_on_unload(
             async_track_state_change_event(
-                self._hass, self._wrapped_entity_id, self._handle_wrapped_light_change
+                hass, self._wrapped_entity_id, self._handle_wrapped_light_change
             )
         )
 
         hass_data: dict[str, dict] = HassData.get_ntfctn_entries(
-            self._hass, self._config_entry.entry_id
+            hass, self._config_entry.entry_id
         )
         pool_subs: list[str] = hass_data.get(TYPE_POOL, [])
         entity_subs: list[str] = hass_data.get(CONF_ENTITIES, [])
@@ -161,7 +206,7 @@ class NotificationLightEntity(LightEntity):
         for entity in entity_subs:
             self._config_entry.async_on_unload(
                 async_track_state_change_event(
-                    self._hass, entity, self._handle_notification_change
+                    hass, entity, self._handle_notification_change
                 )
             )
             # Fire state_changed to get initial notification state
@@ -197,21 +242,22 @@ class NotificationLightEntity(LightEntity):
                             break
 
                         if self._worker_queue:
-                            action: QueueEntry = self._worker_queue.pop()
+                            action: _QueueEntry = self._worker_queue.pop()
+                            is_active_sequene = bool(
+                                self._active_sequence
+                                and self._active_sequence.entity_id
+                                == action.sequence.entity_id
+                            )
+
                             if action.action in (CONF_ADD, CONF_DELETE):
                                 self._sequences[:] = [
                                     seq
                                     for seq in self._sequences
                                     if seq.entity_id != action.sequence.entity_id
                                 ]
-                                if (
-                                    self._active_sequence
-                                    and self._active_sequence.entity_id
-                                    == action.sequence.entity_id
-                                ):
-                                    self._active_sequence = None
 
                             if action.action == CONF_ADD:
+                                # Add the new sequence in, sorted by priority
                                 bisect.insort(
                                     self._sequences,
                                     action.sequence,
@@ -219,33 +265,52 @@ class NotificationLightEntity(LightEntity):
                                 )
 
                         if self._sequences:
-                            if (
-                                self._active_sequence is None
-                                or self._sequences[0].entity_id
-                                != self._active_sequence.entity_id
-                            ):
-                                self._active_sequence = self._sequences[0]
-                                light_params: dict = {
-                                    ATTR_RGB_COLOR: tuple(
-                                        self._active_sequence.pattern[0]
-                                    )
-                                }
-                                await self._wrapped_light_turn_on(**light_params)
+                            next_sequence = self._sequences[0]
+                            self._config_entry.async_create_background_task(
+                                self.hass,
+                                next_sequence.transition_from(self._active_sequence),
+                                name=f"{self.name} worker",
+                            )
+                            self._active_sequence = next_sequence
+                        else:
+                            _LOGGER.error("Sequence list empty for %s", self.name)
 
-                        _LOGGER.warning(self._sequences)
-            except Exception as e:
-                _LOGGER.error(e)
+                        # if self._sequences or active_sequence:
+                        #     if active_sequence:
+                        #         self._active_sequence = action.sequence
+                        #         await active_sequence.transition_to(
+                        #             self._active_sequence
+                        #         )
+                        #     else:
+                        #         pass
 
-    async def _add_sequence(self, sequence: SequenceInfo) -> None:
+                        #     if (
+                        #         self._active_sequence is None
+                        #         or self._sequences[0].entity_id
+                        #         != self._active_sequence.entity_id
+                        #     ):
+                        #         self._active_sequence = self._sequences[0]
+                        #         light_params: dict = {
+                        #             ATTR_RGB_COLOR: tuple(
+                        #                 self._active_sequence.pattern[0].rgb
+                        #             )
+                        #         }
+                        #         await self._wrapped_light_turn_on(**light_params)
+            except Exception:
+                _LOGGER.exception("Error on %s", self.name)
+
+    async def _add_sequence(self, sequence: _NotifySequence) -> None:
         """Add a sequence to this light."""
         async with self._condition:
-            self._worker_queue.append(QueueEntry(sequence, action=CONF_ADD))
+            self._worker_queue.append(_QueueEntry(sequence, action=CONF_ADD))
             self._condition.notify()
 
     async def _remove_sequence(self, id: str) -> None:
         """Remove a sequence from this light."""
         async with self._condition:
-            self._worker_queue.append(QueueEntry(SequenceInfo(id), action=CONF_DELETE))
+            self._worker_queue.append(
+                _QueueEntry(_NotifySequence(id), action=CONF_DELETE)
+            )
             self._condition.notify()
 
     async def _handle_notification_change(
@@ -305,7 +370,7 @@ class NotificationLightEntity(LightEntity):
                 kwargs[ATTR_HS_COLOR] = (h, s)
                 kwargs[ATTR_BRIGHTNESS] = brightness
 
-            await self._hass.services.async_call(
+            await self.hass.services.async_call(
                 Platform.LIGHT,
                 SERVICE_TURN_ON,
                 service_data={ATTR_ENTITY_ID: self._wrapped_entity_id} | kwargs,
@@ -313,7 +378,7 @@ class NotificationLightEntity(LightEntity):
 
     async def _wrapped_light_turn_off(self, **kwargs: Any) -> None:
         """Turn off the underlying wrapped light entity."""
-        await self._hass.services.async_call(
+        await self.hass.services.async_call(
             Platform.LIGHT,
             SERVICE_TURN_OFF,
             service_data={ATTR_ENTITY_ID: self._wrapped_entity_id} | kwargs,
@@ -331,18 +396,17 @@ class NotificationLightEntity(LightEntity):
 
     def _create_sequence_from_attr(
         self, entity_id: str, attributes: dict[str, Any]
-    ) -> SequenceInfo:
-        """Create a light SequenceInfo from a notification attributes."""
+    ) -> _NotifySequence:
+        """Create a light NotifySequence from a notification attributes."""
         pattern = attributes.get(CONF_NOTIFY_PATTERN)
         if not pattern:
             pattern = [attributes.get(CONF_RGB_SELECTOR, WARM_WHITE_RGB)]
         priority = attributes.get(CONF_PRIORITY, DEFAULT_PRIORITY)
-        return SequenceInfo(entity_id=entity_id, pattern=pattern, priority=priority)
+        return _NotifySequence(entity_id=entity_id, pattern=pattern, priority=priority)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
         self._attr_is_on = True
-        self.async_write_ha_state()
 
         if ATTR_HS_COLOR in kwargs:
             rgb = color_hs_to_RGB(*kwargs[ATTR_HS_COLOR])
@@ -351,7 +415,8 @@ class NotificationLightEntity(LightEntity):
         elif ATTR_RGB_COLOR in kwargs:
             rgb = kwargs[ATTR_RGB_COLOR]
         elif ATTR_BRIGHTNESS in kwargs:
-            v = (100 / 255) * kwargs[ATTR_BRIGHTNESS]
+            self._last_brightness = kwargs[ATTR_BRIGHTNESS]
+            v = (100 / 255) * self._last_brightness
             h, s, _ = color_RGB_to_hsv(*self._last_on_rgb)
             rgb = color_hsv_to_RGB(h, s, v)
         else:
@@ -363,6 +428,7 @@ class NotificationLightEntity(LightEntity):
         )
 
         await self._add_sequence(sequence)
+        self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the entity off."""
@@ -385,12 +451,15 @@ class NotificationLightEntity(LightEntity):
     @property
     def state_attributes(self) -> dict[str, Any]:
         """Return the state attributes."""
-        data = super().state_attributes
+        data: dict[str, Any] = {}
+        if self.is_on:
+            data[ATTR_COLOR_MODE] = ColorMode.RGB
+            data[ATTR_RGB_COLOR] = self._last_on_rgb
+            h, s, v = color_RGB_to_hsv(*self._last_on_rgb)
+            brightness = (255 / 100) * v  # Re-scale 'v' from 0-100 to 0-255
+            data[ATTR_BRIGHTNESS] = brightness
+
         return data
-        # entity_state = self.hass.states.get(self._wrapped_entity_id)
-        if entity_state is None:
-            return {}
-        return entity_state.attributes
 
     @property
     def color_mode(self) -> ColorMode | str | None:
