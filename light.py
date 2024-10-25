@@ -10,12 +10,12 @@ import logging
 from typing import Any
 
 from homeassistant.components.light import (
+    ATTR_BRIGHTNESS,
+    ATTR_COLOR_TEMP,
+    ATTR_HS_COLOR,
     ATTR_RGB_COLOR,
     ColorMode,
     LightEntity,
-    ATTR_HS_COLOR,
-    ATTR_COLOR_TEMP,
-    ATTR_BRIGHTNESS,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -35,8 +35,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util.color import (
     color_hs_to_RGB,
+    color_hsv_to_RGB,
+    color_RGB_to_hsv,
     color_temperature_to_rgb,
-    brightness_to_value,
 )
 
 from .const import (
@@ -254,7 +255,7 @@ class NotificationLightEntity(LightEntity):
         is_on = event.data["new_state"].state == STATE_ON
         notify_id = event.data[CONF_ENTITY_ID]
         if is_on:
-            sequence = self.create_sequence_from_attr(
+            sequence = self._create_sequence_from_attr(
                 event.data[CONF_ENTITY_ID], event.data["new_state"].attributes
             )
             await self._add_sequence(sequence)
@@ -289,6 +290,21 @@ class NotificationLightEntity(LightEntity):
         if kwargs.get(ATTR_RGB_COLOR, []) == OFF_RGB:
             await self._wrapped_light_turn_off()
         else:
+            if (
+                ATTR_RGB_COLOR in kwargs
+                and ATTR_BRIGHTNESS not in kwargs
+                and ColorMode.RGB
+                not in self._attr_supported_color_modes  # wrapped bulb's real capabilities
+            ):
+                # We want low RGB values to be dim, but HomeAssistant needs a separate brightness value for that.
+                # If brightness was not passed in and bulb doesn't support RGB then convert to HS + Brightness.
+                rgb = kwargs.pop(ATTR_RGB_COLOR)
+                h, s, v = color_RGB_to_hsv(*rgb)
+                # Re-scale 'v' from 0-100 to 0-255
+                brightness = (255 / 100) * v
+                kwargs[ATTR_HS_COLOR] = (h, s)
+                kwargs[ATTR_BRIGHTNESS] = brightness
+
             await self._hass.services.async_call(
                 Platform.LIGHT,
                 SERVICE_TURN_ON,
@@ -303,7 +319,17 @@ class NotificationLightEntity(LightEntity):
             service_data={ATTR_ENTITY_ID: self._wrapped_entity_id} | kwargs,
         )
 
-    def create_sequence_from_attr(
+    @staticmethod
+    def _rgb_to_hs_brightness(
+        r: float, g: float, b: float
+    ) -> tuple[float, float, float]:
+        """Return RGB to HS plus brightness."""
+        h, s, v = color_RGB_to_hsv(r, g, b)
+        # Re-scale 'v' from 0-100 to 0-255
+        v = round((255 / 100) * v)
+        return (h, s, v)
+
+    def _create_sequence_from_attr(
         self, entity_id: str, attributes: dict[str, Any]
     ) -> SequenceInfo:
         """Create a light SequenceInfo from a notification attributes."""
@@ -318,7 +344,6 @@ class NotificationLightEntity(LightEntity):
         self._attr_is_on = True
         self.async_write_ha_state()
 
-        multiplier = 1.0
         if ATTR_HS_COLOR in kwargs:
             rgb = color_hs_to_RGB(*kwargs[ATTR_HS_COLOR])
         elif ATTR_COLOR_TEMP in kwargs:
@@ -326,13 +351,13 @@ class NotificationLightEntity(LightEntity):
         elif ATTR_RGB_COLOR in kwargs:
             rgb = kwargs[ATTR_RGB_COLOR]
         elif ATTR_BRIGHTNESS in kwargs:
-            rgb = self._last_on_rgb
-            multiplier = 0.01 * brightness_to_value((1, 100), kwargs[ATTR_BRIGHTNESS])
+            v = (100 / 255) * kwargs[ATTR_BRIGHTNESS]
+            h, s, _ = color_RGB_to_hsv(*self._last_on_rgb)
+            rgb = color_hsv_to_RGB(h, s, v)
         else:
             rgb = self._last_on_rgb
 
         self._last_on_rgb = rgb
-        rgb = tuple([x * multiplier for x in rgb])
         sequence = replace(
             LIGHT_ON_SEQUENCE, pattern=[rgb], priority=self._light_on_priority
         )
@@ -374,5 +399,5 @@ class NotificationLightEntity(LightEntity):
 
     @cached_property
     def supported_color_modes(self) -> set[str] | None:
-        """Flag supported color modes from underlying light."""
-        return self._attr_supported_color_modes
+        """Light wrapper expects RGB."""
+        return [ColorMode.RGB]
