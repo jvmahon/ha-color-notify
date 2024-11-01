@@ -470,7 +470,8 @@ class LightOptionsFlowHandler(HassDataOptionsFlow):
     ) -> ConfigFlowResult:
         """Launch the options flow."""
         if user_input is not None:
-            return self.async_abort(reason="Not implemented")
+            self._get_entry_data().update(ADD_LIGHT_DEFAULTS | user_input)
+            return await self._async_trigger_conf_update(data=self._get_entry_data())
 
         # Don't list lights created by this integration or in use
         exclude_entities = HassData.get_domain_light_entity_ids(self.hass)
