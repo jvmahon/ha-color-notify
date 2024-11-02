@@ -1,19 +1,11 @@
 """Light platform for Notify Light-er integration."""
 
-from __future__ import annotations
-
-from abc import ABC, abstractmethod
-from collections.abc import Coroutine
 import asyncio
-from collections.abc import Callable, Iterator
-from contextlib import suppress
-from dataclasses import dataclass, field, replace
+from collections.abc import Coroutine
+from dataclasses import dataclass, replace
 from functools import cached_property
-from itertools import cycle
-import json
 import logging
-import time
-from typing import Any, NoReturn
+from typing import Any
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
@@ -30,7 +22,6 @@ from homeassistant.const import (
     ATTR_ENTITY_ID,
     CONF_ENTITIES,
     CONF_ENTITY_ID,
-    CONF_RGB,
     CONF_UNIQUE_ID,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
@@ -54,7 +45,6 @@ from homeassistant.util.color import (
 
 from .const import (
     CONF_ADD,
-    CONF_DELAY,
     CONF_DELETE,
     CONF_NOTIFY_PATTERN,
     CONF_PRIORITY,
@@ -64,7 +54,8 @@ from .const import (
     TYPE_POOL,
     WARM_WHITE_RGB,
 )
-from .hass_data import HassData
+from .utils.hass_data import HassData
+from .utils.light_sequence import ColorInfo, LightSequence
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -87,221 +78,34 @@ async def async_setup_entry(
     config.update({CONF_UNIQUE_ID: unique_id})
 
     async_add_entities(
-        [
-            NotificationLightEntity(
-                hass, unique_id, name, wrapped_entity_id, config_entry
-            )
-        ]
-    )
-
-
-def _interpolate(start: tuple, end: tuple, amount: float) -> tuple:
-    return tuple(
-        int(t1 + (t2 - t1) * amount) for t1, t2 in zip(start, end, strict=True)
+        [NotificationLightEntity(unique_id, name, wrapped_entity_id, config_entry)]
     )
 
 
 @dataclass
-class _ColorInfo:
-    """Internal color representation."""
-
-    rgb: tuple = WARM_WHITE_RGB
-    brightness: float = 100.0
-
-    def interpolated_to(self, end: _ColorInfo, amount: float) -> _ColorInfo:
-        a = (*self.rgb, self.brightness)
-        b = (*end.rgb, end.brightness)
-        return _ColorInfo(*_interpolate(a, b, amount))
-
-    @property
-    def light_params(self) -> dict[str, Any]:
-        return {ATTR_RGB_COLOR: self.rgb}
-
-
-@dataclass
-class _AnimationState:
-    """Info about the current state of a animation."""
-
-    color: _ColorInfo = field(default_factory=_ColorInfo)
-    prev_color: _ColorInfo | None = None
-    trans_start_time: float = 0
-    trans_end_time: float = 0
-
-
-@dataclass
-class _AnimWorkspace:
-    next_idx: int = 0
-    cur_loop: int = 0
-    data: dict[Any, Any] = field(default_factory=dict)
-    color: _ColorInfo = field(default_factory=_ColorInfo)
-
-
-class _AnimationStep(ABC):
-    def __init__(self) -> None:
-        self._idx: int | None = None
-
-    @abstractmethod
-    async def execute(self, workspace: _AnimWorkspace):
-        pass
-
-    @property
-    def idx(self):
-        return self._idx
-
-    @idx.setter
-    def idx(self, value):
-        self._idx = value
-
-
-class _Animation:
-    def __init__(self) -> None:
-        self._steps: list[_AnimationStep] = []
-        self._workspace: _AnimWorkspace = _AnimWorkspace()
-
-    async def runNextStep(self) -> bool:
-        """Run the next step, returning 'True' if done."""
-        if self._workspace.next_idx >= len(self._steps):
-            return True
-        next_step = self._steps[self._workspace.next_idx]
-        self._workspace.next_idx += 1
-        await next_step.execute(self._workspace)
-        return self._workspace.next_idx >= len(self._steps)
-
-    def addStep(self, step: _AnimationStep) -> None:
-        step.idx = len(self._steps)
-        self._steps.append(step)
-
-    @property
-    def color(self):
-        return replace(self._workspace.color)
-
-    @color.setter
-    def color(self, value: _ColorInfo):
-        self._workspace.color = value
-
-
-@dataclass
-class _LoopInfo:
-    open_idx: int = 0
-    loop_cnt: int = 0
-
-
-class _StepOpenLoop(_AnimationStep):
-    def __init__(self, loop_id: int) -> None:
-        super().__init__()
-        self._loop_id = loop_id
-
-    async def execute(self, workspace: _AnimWorkspace):
-        assert self.idx is not None
-        if self._loop_id not in workspace.data:
-            workspace.data[self._loop_id] = _LoopInfo(self.idx)
-
-
-class _StepSetColor(_AnimationStep):
-    def __init__(self, color: _ColorInfo) -> None:
-        super().__init__()
-        self._color: _ColorInfo = color
-
-    async def execute(self, workspace: _AnimWorkspace):
-        workspace.color = replace(self._color)  # creates a copy
-
-
-class _StepDelay(_AnimationStep):
-    def __init__(self, delay: float):
-        super().__init__()
-        self._delay = delay
-        self._end_timestamp: float = 0.0
-
-    async def execute(self, workspace: _AnimWorkspace):
-        self._end_timestamp = time.time() + self._delay
-        await asyncio.sleep(self._delay)
-        self._end_timestamp = 0
-
-    def get_end_timestamp(self):
-        return self._end_timestamp
-
-
-class _StepCloseLoop(_AnimationStep):
-    def __init__(self, loop_id: int, loop_cnt: int) -> None:
-        super().__init__()
-        self._loop_id = loop_id
-        self._total_repeats = loop_cnt
-
-    async def execute(self, workspace: _AnimWorkspace):
-        info: _LoopInfo | None = workspace.data.get(self._loop_id)
-        if info is None:
-            raise ValueError("CloseLoop with no matching OpenLoop!")
-        info.loop_cnt += 1
-        if self._total_repeats < 0 or info.loop_cnt <= self._total_repeats:
-            workspace.next_idx = info.open_idx
-        else:
-            workspace.data.pop(self._loop_id)
-
-
-@dataclass
-class _NotificationAnimation:
+class _NotificationSequence:
     """A color sequence to queue on the light."""
 
     def __init__(
         self,
-        pattern: list[str | _ColorInfo],
+        pattern: list[str | ColorInfo],
         priority: int = DEFAULT_PRIORITY,
     ) -> None:
         self.priority = priority
 
-        self._animation: _Animation = self._parse_pattern(pattern)
-        self._condition: asyncio.Condition = asyncio.Condition()
-        self._state: _AnimationState = _AnimationState(
-            color=pattern[0] if pattern else _ColorInfo()
-        )
+        self._sequence: LightSequence = LightSequence.create_from_pattern(pattern)
         self._task: asyncio.Task | None = None
         self._stop_event: asyncio.Event | None = None
+        self._color: ColorInfo = ColorInfo(OFF_RGB, 0)
         self._step_finished: asyncio.Event = asyncio.Event()
         self._step_finished.set()
 
     def __repr__(self) -> str:
-        return f"Animation Pri: {self.priority} Pattern: {self._animation}"
+        return f"Animation Pri: {self.priority} Sequence: {self._sequence}"
 
-    def _parse_pattern(self, pattern: list[str | _ColorInfo]) -> _Animation:
-        new_anim: _Animation = _Animation()
-        initial_color: _ColorInfo | None = None
-        next_loop_id: int = 1
-        loop_stack: list[int] = []
-        for item in pattern:
-            if isinstance(item, _ColorInfo):
-                if initial_color is None:
-                    initial_color = item
-                new_anim.addStep(_StepSetColor(item))
-            elif isinstance(item, str):
-                item = item.strip()
-                if item == "[":
-                    new_anim.addStep(_StepOpenLoop(next_loop_id))
-                    loop_stack.append(next_loop_id)
-                    next_loop_id += 1
-                elif item.startswith("]"):
-                    with_iter_cnt = item.split(",")
-                    iter_cnt = int(with_iter_cnt[1]) if len(with_iter_cnt) == 2 else -1
-                    loop_id = loop_stack.pop()
-                    new_anim.addStep(_StepCloseLoop(loop_id, iter_cnt))
-                else:
-                    try:
-                        json_txt = f"{{{item.strip().strip('{}')}}}"  # Ensure there are curly braces
-                        item_dict = json.loads(json_txt)
-                    except:
-                        logging.exception("Failed to parse json")
-                    rgb = item_dict.get(
-                        ATTR_RGB_COLOR, item_dict.get(CONF_RGB, WARM_WHITE_RGB)
-                    )
-                    color = _ColorInfo(rgb=rgb)
-                    if initial_color is None:
-                        initial_color = color
-                    # TODO: Fade
-                    new_anim.addStep(_StepSetColor(color))
-                    if delay := item_dict.get(CONF_DELAY):
-                        new_anim.addStep(_StepDelay(delay))
-        new_anim.color = initial_color or _ColorInfo(OFF_RGB, 0)
-        # TODO:  Get the options flow to validate the json that is entered
-        return new_anim
+    @property
+    def color(self) -> ColorInfo:
+        return self._color
 
     def wait(self) -> Coroutine:
         return self._step_finished.wait()
@@ -312,10 +116,10 @@ class _NotificationAnimation:
         try:
             while not done and not stop_event.is_set():
                 self._step_finished.clear()
-                done = await self._animation.runNextStep()
+                done = await self._sequence.runNextStep()
                 self._step_finished.set()
                 if not stop_event.is_set():  # Don't update if we were interrupted
-                    self._state.color = self._animation.color
+                    self._color = self._sequence.color
         except Exception as e:
             _LOGGER.exception("Failed running NotificationAnimation")
         _LOGGER.warning("Done with worker func for NotificationAnimation")
@@ -324,21 +128,10 @@ class _NotificationAnimation:
         if self._stop_event:
             self._stop_event.set()
         self._stop_event = asyncio.Event()
+        self._color = self._sequence.color
         self._task = config_entry.async_create_background_task(
             hass, self._worker_func(self._stop_event), name="Animation worker"
         )
-        self._state.color = self._animation.color
-
-    async def color(self) -> _ColorInfo:
-        """Return the current, possibly interpolated, color of this animation."""
-        # Linearly interpolate if there is a transition
-        cur_time = time.time()
-        if self._state.prev_color and cur_time < self._state.trans_end_time:
-            total = self._state.trans_end_time - self._state.trans_start_time
-            elapsed = cur_time - self._state.trans_start_time
-            amount = elapsed / total if total > 0 else 0
-            return self._state.prev_color.interpolated_to(self._state.color, amount)
-        return self._state.color
 
     async def stop(self):
         if self._stop_event:
@@ -353,12 +146,12 @@ class _NotificationAnimation:
         )
 
 
-LIGHT_OFF_SEQUENCE = _NotificationAnimation(
-    pattern=[_ColorInfo(OFF_RGB, 0)],
+LIGHT_OFF_SEQUENCE = _NotificationSequence(
+    pattern=[ColorInfo(OFF_RGB, 0)],
     priority=0,
 )
-LIGHT_ON_SEQUENCE = _NotificationAnimation(
-    pattern=[_ColorInfo(WARM_WHITE_RGB, 255)],
+LIGHT_ON_SEQUENCE = _NotificationSequence(
+    pattern=[ColorInfo(WARM_WHITE_RGB, 255)],
     priority=DEFAULT_PRIORITY,
 )
 
@@ -367,15 +160,7 @@ LIGHT_ON_SEQUENCE = _NotificationAnimation(
 class _QueueEntry:
     action: str
     notify_id: str
-    sequence: _NotificationAnimation | None = None
-
-
-@dataclass
-class _ActiveAnimation:
-    animation: _NotificationAnimation | None = None
-    fade_start_time: float = 0
-    fade_out_time: float = 0
-    fade_in_time: float = 0
+    sequence: _NotificationSequence | None = None
 
 
 class NotificationLightEntity(LightEntity, RestoreEntity):
@@ -385,7 +170,6 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
 
     def __init__(
         self,
-        hass: HomeAssistant,
         unique_id: str,
         name: str,
         wrapped_entity_id: str,
@@ -394,17 +178,17 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         """Initialize notify_lighter light."""
         super().__init__()
         self._wrapped_entity_id: str = wrapped_entity_id
+        self._wrapped_init_done: bool = False
         self._attr_name: str = name
         self._attr_unique_id: str = unique_id
         self._config_entry: ConfigEntry = config_entry
-        self._wrapped_init: bool = False
 
-        self._active_animations: dict[str, _ActiveAnimation] = {}
-        self._sequences: dict[str, _NotificationAnimation] = {}
-        self._last_set_color: _ColorInfo | None = None
+        self._visible_sequences: dict[str, _NotificationSequence] = {}
+        self._active_sequences: dict[str, _NotificationSequence] = {}
+        self._last_set_color: ColorInfo | None = None
 
-        self._worker_queue: asyncio.Queue[_QueueEntry] = asyncio.Queue()
-        self._worker: asyncio.Task | None = None
+        self._task_queue: asyncio.Queue[_QueueEntry] = asyncio.Queue()
+        self._task: asyncio.Task | None = None
 
         self._light_on_priority: int = config_entry.options.get(
             CONF_PRIORITY, DEFAULT_PRIORITY
@@ -417,8 +201,8 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
     async def async_added_to_hass(self):
         """Set up before initially adding to HASS."""
         await super().async_added_to_hass()
-
-        self._worker = self._config_entry.async_create_background_task(
+        # Spawn the worker function background task to manage this bulb
+        self._task = self._config_entry.async_create_background_task(
             self.hass, self._worker_func(), name=f"{self.name} background task"
         )
 
@@ -455,6 +239,8 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                     "old_state": None,
                 },
             )
+
+        # Add the 'OFF' sequence so the list isn't empty
         await self._add_sequence(STATE_OFF, LIGHT_OFF_SEQUENCE)
 
         restored_state = await self.async_get_last_state()
@@ -465,8 +251,8 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
 
     async def async_will_remove_from_hass(self):
         """Clean up before removal from HASS."""
-        if self._worker:
-            self._worker.cancel()
+        if self._task:
+            self._task.cancel()
 
     async def _worker_func(self):
         while True:
@@ -478,58 +264,47 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                 _LOGGER.exception("Error running %s worker!", self.name)
 
     @callback
-    def _is_animating(self):
-        """Return True if any active notification is an animation."""
-        return any([x.animation.is_running() for x in self._active_animations.values()])
-
-    @callback
-    def _get_wait_events(self) -> set:
+    def _get_sequence_step_events(self) -> set:
         """Return awaitable events for the current light."""
         return {
-            x.animation.wait()
-            for x in self._active_animations.values()
-            if x.animation and x.animation.is_running()
+            anim.wait()
+            for anim in self._visible_sequences.values()
+            if anim and anim.is_running()
         }
 
-    async def _update_light_color(self):
+    async def _process_sequence_list(self):
         """Process the sequence list for the current display color and set it on the bulb."""
-        if self._sequences:
-            # _LOGGER.warning("Sequences: %s", self._sequences)
-            next_id, next_sequence = next(iter(self._sequences.items()))
+        if self._active_sequences:
+            next_id, next_sequence = next(iter(self._active_sequences.items()))
             # If highest priority sequence is not in the active list then put it there.
-            if next_id not in self._active_animations:
+            if next_id not in self._visible_sequences:
                 await next_sequence.run(self.hass, self._config_entry)
-                self._active_animations[next_id] = _ActiveAnimation(
-                    animation=next_sequence
-                )
+                self._visible_sequences[next_id] = next_sequence
 
             remove_list = {
-                k: v
-                for k, v in self._active_animations.items()
-                if k not in self._sequences
-                or (
-                    v.animation is not None
-                    and v.animation.priority < next_sequence.priority
-                )
+                k: anim
+                for k, anim in self._visible_sequences.items()
+                if k not in self._active_sequences
+                or (anim is not None and anim.priority < next_sequence.priority)
             }
 
             # Stop animations that are lower priority than the current
             for seq_id, anim in remove_list.items():
-                if anim.animation:
-                    await anim.animation.stop()
-                self._active_animations.pop(seq_id)
+                if anim:
+                    await anim.stop()
+                self._visible_sequences.pop(seq_id)
 
             # Now combine the colors
             colors = [
-                await anim.animation.color()
-                for anim in self._active_animations.values()
-                if anim.animation is not None
+                anim.color
+                for anim in self._visible_sequences.values()
+                if anim is not None
             ]
             # _LOGGER.warning(colors)
             color = NotificationLightEntity.mix_colors(colors)
             if color != self._last_set_color:
                 await self._wrapped_light_turn_on(**color.light_params)
-                _LOGGER.warning(f"setting color {color} for {self._active_animations}")
+                _LOGGER.warning(f"setting color {color} for {self._visible_sequences}")
                 self._last_set_color = color
 
         else:
@@ -540,13 +315,18 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         # Wait until the list is not empty
         q_task: asyncio.Task | None = None
         while True:
-            await self._update_light_color()
+            # Update the bulb based off the current sequence list
+            await self._process_sequence_list()
+
+            # Now wait for a command or for an animation step
             if q_task is None or q_task.done():
-                q_task = asyncio.create_task(self._worker_queue.get())
-            wait_tasks = [asyncio.create_task(x) for x in self._get_wait_events()]
+                q_task = asyncio.create_task(self._task_queue.get())
+            wait_tasks = [
+                asyncio.create_task(x) for x in self._get_sequence_step_events()
+            ]
             wait_tasks.append(q_task)
             _LOGGER.warning(
-                f"Waiting for asyncio  {self._worker_queue.qsize()} {hex(id(self._worker_queue))}"
+                f"Waiting for asyncio  {self._task_queue.qsize()} {hex(id(self._task_queue))}"
             )
             done, pending = await asyncio.wait(
                 wait_tasks,
@@ -560,22 +340,23 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                     _LOGGER.warning(
                         "Action: %s %s [step delete]", item.action, item.notify_id
                     )
-                    if item.notify_id in self._sequences:
-                        anim = self._sequences.pop(item.notify_id)
-                        if item.notify_id in self._active_animations:
+                    if item.notify_id in self._active_sequences:
+                        anim = self._active_sequences.pop(item.notify_id)
+                        if item.notify_id in self._visible_sequences:
                             await anim.stop()
-                            self._active_animations.pop(item.notify_id)
+                            self._visible_sequences.pop(item.notify_id)
 
                 if item.action == CONF_ADD and item.sequence:
                     _LOGGER.warning("Action: %s %s", item.action, item.notify_id)
                     # Add the new sequence in, sorted by priority
-                    self._sequences[item.notify_id] = item.sequence
-                    self._sequences = dict(
+                    self._active_sequences[item.notify_id] = item.sequence
+                    self._active_sequences = dict(
                         sorted(
-                            self._sequences.items(), key=lambda item: -item[1].priority
+                            self._active_sequences.items(),
+                            key=lambda item: -item[1].priority,
                         )
                     )
-                self._worker_queue.task_done()
+                self._task_queue.task_done()
 
             # TODO: Task needs to interpolate between current and next. We need to schedule 'enxt needed time'. If we are moving between
             # two static colors we can probably trust the lamp's transition to handle this for us (do we need transition time), but if we
@@ -584,8 +365,8 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
     @callback
     @staticmethod
     def mix_colors(
-        colors: list[_ColorInfo], weights: list[float] | None = None
-    ) -> _ColorInfo:
+        colors: list[ColorInfo], weights: list[float] | None = None
+    ) -> ColorInfo:
         """Mix a list of RGB colors with their respective brightness and weight values."""
         if weights is None:
             weights = [1.0] * len(colors)
@@ -612,32 +393,30 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         b = min(int(round(b_total)), 255)
         brightness_total = min(int(round(brightness_total)), 255)
 
-        return _ColorInfo((r, g, b), brightness_total)
+        return ColorInfo((r, g, b), brightness_total)
 
     async def _add_sequence(
-        self, notify_id: str, sequence: _NotificationAnimation
+        self, notify_id: str, sequence: _NotificationSequence
     ) -> None:
         """Add a sequence to this light."""
         _LOGGER.error(
-            f"Adding {notify_id} add to worker queue {hex(id(self._worker_queue))}"
+            f"Adding {notify_id} add to worker queue {hex(id(self._task_queue))}"
         )
-        await self._worker_queue.put(
+        await self._task_queue.put(
             _QueueEntry(action=CONF_ADD, notify_id=notify_id, sequence=sequence)
         )
 
     async def _remove_sequence(self, notify_id: str) -> None:
         """Remove a sequence from this light."""
         _LOGGER.error(
-            f"Adding {notify_id} delete to worker queue {hex(id(self._worker_queue))}"
+            f"Adding {notify_id} delete to worker queue {hex(id(self._task_queue))}"
         )
-        await self._worker_queue.put(
-            _QueueEntry(notify_id=notify_id, action=CONF_DELETE)
-        )
+        await self._task_queue.put(_QueueEntry(notify_id=notify_id, action=CONF_DELETE))
 
     async def _handle_notification_change(
         self, event: Event[EventStateChangedData]
     ) -> None:
-        """Handle a notification changing state."""
+        """Handle a subscribed notification changing state."""
         is_on = event.data["new_state"].state == STATE_ON
         notify_id = event.data[CONF_ENTITY_ID]
         if is_on:
@@ -666,7 +445,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             self._attr_supported_color_modes = self._attr_capability_attributes.get(
                 "supported_color_modes", set()
             )
-            self._wrapped_init = True
+            self._wrapped_init_done = True
             self.async_write_ha_state()
 
     async def _wrapped_light_turn_on(self, **kwargs: Any) -> None:
@@ -674,7 +453,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         if kwargs.get(ATTR_RGB_COLOR, []) == OFF_RGB:
             await self._wrapped_light_turn_off()
         else:
-            if not self._wrapped_init:
+            if not self._wrapped_init_done:
                 _LOGGER.warning(
                     "Can't turn on light before it is initialized: %s", self.name
                 )
@@ -688,6 +467,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                 )  # wrapped bulb's real capabilities
             ):
                 # We want low RGB values to be dim, but HomeAssistant needs a separate brightness value for that.
+                # TODO: Do we want this?
                 # If brightness was not passed in and bulb doesn't support RGB then convert to HS + Brightness.
                 rgb = kwargs.pop(ATTR_RGB_COLOR)
                 h, s, v = color_RGB_to_hsv(*rgb)
@@ -704,7 +484,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
 
     async def _wrapped_light_turn_off(self, **kwargs: Any) -> None:
         """Turn off the underlying wrapped light entity."""
-        if not self._wrapped_init:
+        if not self._wrapped_init_done:
             return
         await self.hass.services.async_call(
             Platform.LIGHT,
@@ -724,18 +504,16 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
 
     def _create_sequence_from_attr(
         self, attributes: dict[str, Any]
-    ) -> _NotificationAnimation:
+    ) -> _NotificationSequence:
         """Create a light NotifySequence from a notification attributes."""
         pattern = attributes.get(CONF_NOTIFY_PATTERN)
         if not pattern:
-            pattern = [
-                _ColorInfo(rgb=attributes.get(CONF_RGB_SELECTOR, WARM_WHITE_RGB))
-            ]
+            pattern = [ColorInfo(rgb=attributes.get(CONF_RGB_SELECTOR, WARM_WHITE_RGB))]
         priority = attributes.get(CONF_PRIORITY, DEFAULT_PRIORITY)
-        return _NotificationAnimation(pattern=pattern, priority=priority)
+        return _NotificationSequence(pattern=pattern, priority=priority)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the entity on."""
+        """Handle a turn_on service call."""
         self._attr_is_on = True
 
         if ATTR_HS_COLOR in kwargs:
@@ -754,7 +532,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         self._last_on_rgb = rgb
         sequence = replace(
             LIGHT_ON_SEQUENCE,
-            pattern=[_ColorInfo(rgb=rgb)],
+            pattern=[ColorInfo(rgb=rgb)],
             priority=self._light_on_priority,
         )
 
@@ -762,13 +540,13 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the entity off."""
+        """Handle a turn_off service call."""
         self._attr_is_on = False
         self.async_write_ha_state()
         await self._remove_sequence(STATE_ON)
 
     async def async_toggle(self, **kwargs: Any) -> None:
-        """Toggle the entity."""
+        """Handle a toggle service call."""
         if self.is_on:
             await self.async_turn_off(**kwargs)
         else:

@@ -42,7 +42,7 @@ from .const import (
     TYPE_POOL,
     WARM_WHITE_RGB,
 )
-from .hass_data import HassData
+from .utils.hass_data import HassData
 
 _LOGGER = logging.getLogger(__name__)
 

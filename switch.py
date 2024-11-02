@@ -14,7 +14,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import CONF_DELETE, CONF_EXPIRE_ENABLED, CONF_NTFCTN_ENTRIES
-from .hass_data import HassData
+from .utils.hass_data import HassData
 
 
 async def async_setup_entry(

@@ -1,5 +1,5 @@
 from homeassistant.core import HomeAssistant, callback
-from .const import (
+from ..const import (
     CONF_PRIORITY,
     DEFAULT_PRIORITY,
     CONF_NTFCTN_ENTRIES,
