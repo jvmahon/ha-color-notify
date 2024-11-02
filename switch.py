@@ -1,7 +1,7 @@
 """Switch platform for Notify Switch-er integration."""
 
 from datetime import timedelta
-from functools import cached_property
+from functools import partial
 from typing import Any, Callable
 
 from homeassistant.config_entries import ConfigEntry
@@ -10,10 +10,15 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import ToggleEntity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import CONF_DELETE, CONF_EXPIRE_ENABLED, CONF_NTFCTN_ENTRIES
+from .const import (
+    CONF_DELETE,
+    CONF_EXPIRE_ENABLED,
+    CONF_NTFCTN_ENTRIES,
+    CONF_SUBSCRIPTION,
+)
 from .utils.hass_data import HassData
 
 
@@ -59,6 +64,25 @@ async def async_setup_entry(
 
     if entities_to_add:
         async_add_entities(entities_to_add)
+        #  Subscribe pool to each notification
+        for entity in entities_to_add:
+            config_entry.async_on_unload(
+                async_track_state_change_event(
+                    hass,
+                    entity.entity_id,
+                    partial(forward_pooled_update, hass, config_entry),
+                )
+            )
+
+
+async def forward_pooled_update(hass: HomeAssistant, config_entry: ConfigEntry, *args):
+    """Forward notifications from this pool along to any pool subscribers"""
+    subs = HassData.get_entry_data(hass, config_entry.entry_id).get(
+        CONF_SUBSCRIPTION, []
+    )
+    for sub in subs:
+        if callable(sub):
+            await sub(*args)
 
 
 class NotificationSwitchEntity(ToggleEntity, RestoreEntity):

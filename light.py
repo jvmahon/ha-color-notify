@@ -1,8 +1,8 @@
 """Light platform for Notify Light-er integration."""
 
 import asyncio
-from collections.abc import Coroutine
-from dataclasses import dataclass, replace
+from collections.abc import Callable, Coroutine
+from dataclasses import dataclass, field, replace
 from functools import cached_property
 import logging
 from typing import Any
@@ -49,6 +49,7 @@ from .const import (
     CONF_NOTIFY_PATTERN,
     CONF_PRIORITY,
     CONF_RGB_SELECTOR,
+    CONF_SUBSCRIPTION,
     DEFAULT_PRIORITY,
     OFF_RGB,
     TYPE_POOL,
@@ -224,6 +225,13 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         pool_subs: list[str] = hass_data.get(TYPE_POOL, [])
         entity_subs: list[str] = hass_data.get(CONF_ENTITIES, [])
 
+        # Add the handle_change callback to the HassData pool info
+        for pool in pool_subs:
+            pool_callbacks: set[Callable] = HassData.get_entry_data(
+                self.hass, pool
+            ).setdefault(CONF_SUBSCRIPTION, set())
+            pool_callbacks.add(self._handle_notification_change)
+
         for entity in entity_subs:
             self._config_entry.async_on_unload(
                 async_track_state_change_event(
@@ -253,6 +261,18 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         """Clean up before removal from HASS."""
         if self._task:
             self._task.cancel()
+
+        # Unsubscribe any 'pool' subscriptions
+        hass_data: dict[str, dict] = HassData.get_ntfctn_entries(
+            self.hass, self._config_entry.entry_id
+        )
+        pool_subs: list[str] = hass_data.get(TYPE_POOL, [])
+        for pool in pool_subs:
+            pool_callbacks: set[Callable] = HassData.get_entry_data(
+                self.hass, pool
+            ).setdefault(CONF_SUBSCRIPTION, set())
+            if self._handle_notification_change in pool_callbacks:
+                pool_callbacks.remove(self._handle_notification_change)
 
     async def _worker_func(self):
         while True:

@@ -8,6 +8,7 @@ TYPE_POOL: Final = "pool"
 TYPE_LIGHT: Final = "light"
 
 CONF_RGB_SELECTOR: Final = "color_picker"
+CONF_SUBSCRIPTION: Final = "subscription"
 CONF_NOTIFY_PATTERN: Final = "pattern"
 CONF_EXPIRE_DELAY: Final = "expire_delay"
 CONF_EXPIRE_ENABLED: Final = "expire_enabled"

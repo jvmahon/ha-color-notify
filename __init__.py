@@ -2,25 +2,19 @@
 
 from __future__ import annotations
 
+import logging
+from typing import Any
+
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import ATTR_NAME, CONF_TYPE, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 
 from .const import DOMAIN, TYPE_LIGHT, TYPE_POOL
 
-from homeassistant.const import Platform, ATTR_NAME, CONF_TYPE
-
-from typing import Any
-
-import logging
-
 _LOGGER = logging.getLogger(__name__)
 
-# TODO List the platforms that you want to support.
-# For your initial PR, limit it to 1 platform.
 PLATFORMS: list[Platform] = [Platform.LIGHT, Platform.SWITCH]
 
-# TODO Create ConfigEntry type alias with API object
-# TODO Rename type alias and update all entry annotations
 type NotifyLighterConfigEntry = ConfigEntry[NotifyLighterData]  # noqa: F821
 
 
