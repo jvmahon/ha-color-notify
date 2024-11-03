@@ -19,6 +19,8 @@ from homeassistant.helpers import entity_registry as er, selector
 class HassData:
     """Helper functions for access hass_data."""
 
+    _runtime_data: dict[str, dict] = {}
+
     @callback
     @staticmethod
     def get_domain_data(hass: HomeAssistant) -> dict[str, dict]:
@@ -30,6 +32,12 @@ class HassData:
     def get_entry_data(hass: HomeAssistant, config_entry_id: str) -> dict[str, dict]:
         """Return hass_data entries for a ConfigEntry."""
         return HassData.get_domain_data(hass).setdefault(config_entry_id, {})
+
+    @callback
+    @staticmethod
+    def get_runtime_data(config_entry_id: str) -> dict[str, dict]:
+        """Return non-persisted runtime data for a ConfigEntry."""
+        return HassData._runtime_data.setdefault(config_entry_id, {})
 
     @callback
     @staticmethod

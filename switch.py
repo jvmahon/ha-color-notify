@@ -77,9 +77,7 @@ async def async_setup_entry(
 
 async def forward_pooled_update(hass: HomeAssistant, config_entry: ConfigEntry, *args):
     """Forward notifications from this pool along to any pool subscribers"""
-    subs = HassData.get_entry_data(hass, config_entry.entry_id).get(
-        CONF_SUBSCRIPTION, []
-    )
+    subs = HassData.get_runtime_data(config_entry.entry_id).get(CONF_SUBSCRIPTION, [])
     for sub in subs:
         if callable(sub):
             await sub(*args)

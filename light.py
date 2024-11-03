@@ -113,6 +113,7 @@ class _NotificationSequence:
 
     async def _worker_func(self, stop_event: asyncio.Event):
         """Coroutine to run the animation until finished or interrupted."""
+        # TODO: Is this extra task needed around sequence?
         done = False
         try:
             while not done and not stop_event.is_set():
@@ -227,9 +228,9 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
 
         # Add the handle_change callback to the HassData pool info
         for pool in pool_subs:
-            pool_callbacks: set[Callable] = HassData.get_entry_data(
-                self.hass, pool
-            ).setdefault(CONF_SUBSCRIPTION, set())
+            pool_callbacks: set[Callable] = HassData.get_runtime_data(pool).setdefault(
+                CONF_SUBSCRIPTION, set()
+            )
             pool_callbacks.add(self._handle_notification_change)
 
         for entity in entity_subs:
@@ -268,24 +269,25 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         )
         pool_subs: list[str] = hass_data.get(TYPE_POOL, [])
         for pool in pool_subs:
-            pool_callbacks: set[Callable] = HassData.get_entry_data(
-                self.hass, pool
-            ).setdefault(CONF_SUBSCRIPTION, set())
+            pool_callbacks: set[Callable] = HassData.get_runtime_data(pool).setdefault(
+                CONF_SUBSCRIPTION, set()
+            )
             if self._handle_notification_change in pool_callbacks:
                 pool_callbacks.remove(self._handle_notification_change)
 
     async def _worker_func(self):
+        """Try/Except wrapper around inner work loop."""
         while True:
             try:
                 await self._work_loop()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except Exception as _:
                 _LOGGER.exception("Error running %s worker!", self.name)
 
     @callback
     def _get_sequence_step_events(self) -> set:
-        """Return awaitable events for the current light."""
+        """Return awaitable events for the sequences on the current light."""
         return {
             anim.wait()
             for anim in self._visible_sequences.values()
