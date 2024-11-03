@@ -2,8 +2,8 @@
 
 import asyncio
 from collections.abc import Callable, Coroutine
+from dataclasses import dataclass, replace
 from datetime import timedelta
-from dataclasses import dataclass, field, replace
 from functools import cached_property
 import logging
 from typing import Any
@@ -21,11 +21,11 @@ from homeassistant.components.light import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_ENTITY_ID,
+    CONF_DELAY,
+    CONF_DELAY_TIME,
     CONF_ENTITIES,
     CONF_ENTITY_ID,
     CONF_UNIQUE_ID,
-    CONF_DELAY,
-    CONF_DELAY_TIME,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
     STATE_OFF,
@@ -35,7 +35,7 @@ from homeassistant.const import (
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_state_change_event, async_call_later
+from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util.color import (
     color_hs_to_RGB,
@@ -279,16 +279,6 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             if self._handle_notification_change in pool_callbacks:
                 pool_callbacks.remove(self._handle_notification_change)
 
-    async def _worker_func(self):
-        """Try/Except wrapper around inner work loop."""
-        while True:
-            try:
-                await self._work_loop()
-            except asyncio.CancelledError:
-                break
-            except Exception as _:
-                _LOGGER.exception("Error running %s worker!", self.name)
-
     @callback
     def _get_sequence_step_events(self) -> set:
         """Return awaitable events for the sequences on the current light."""
@@ -343,6 +333,16 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
 
         else:
             _LOGGER.error("Sequence list empty for %s", self.name)
+
+    async def _worker_func(self):
+        """Try/Except wrapper around inner work loop."""
+        while True:
+            try:
+                await self._work_loop()
+            except asyncio.CancelledError:
+                break
+            except Exception as _:
+                _LOGGER.exception("Error running %s worker!", self.name)
 
     async def _work_loop(self):
         """Worker loop to manage light."""
@@ -428,10 +428,6 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                     self._active_sequences = new_dict
 
                 self._task_queue.task_done()
-
-            # TODO: Task needs to interpolate between current and next. We need to schedule 'enxt needed time'. If we are moving between
-            # two static colors we can probably trust the lamp's transition to handle this for us (do we need transition time), but if we
-            # are in the middle of an animation then we need to keep on rescheduling remixes, so we should schedule the 'next update time' for us
 
     @callback
     @staticmethod
@@ -543,7 +539,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                 )  # wrapped bulb's real capabilities
             ):
                 # We want low RGB values to be dim, but HomeAssistant needs a separate brightness value for that.
-                # TODO: Do we want this?
+                # TODO: Do we actually want this?
                 # If brightness was not passed in and bulb doesn't support RGB then convert to HS + Brightness.
                 rgb = kwargs.pop(ATTR_RGB_COLOR)
                 h, s, v = color_RGB_to_hsv(*rgb)

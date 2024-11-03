@@ -53,8 +53,8 @@
           "name": "Name for notification",
           "expire_enabled": "Automatically clear after timeout?",
           "delay_time": "Auto-clear timeout",
-          "pattern": "'#0000FF', '#FF0000,10', '[' or '], loopcnt'",
-          "color_picker": "Select a color, or '+Add' pattern",
+          "pattern": "'[' or '], loopcnt' or '{\"rgb\": [255,0,0], \"delay\": 1.5}'",
+          "color_picker": "Select a solid color, or use '+Add' to create a pattern",
           "unique_id": ""
         }
       },
@@ -71,8 +71,8 @@
           "name": "Name for notification",
           "expire_enabled": "Automatically clear after timeout?",
           "delay_time": "Auto-clear timeout",
-          "pattern": "'#0000FF', '#FF0000,10', '[' or '], loopcnt'",
-          "color_picker": "Select a color, or '+Add' pattern",
+          "pattern": "'[' or '], loopcnt' or '{\"rgb\": [255,0,0], \"delay\": 1.5}'",
+          "color_picker": "Select a solid color, or use '+Add' to create a pattern",
           "unique_id": ""
         }
       },

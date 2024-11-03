@@ -341,7 +341,13 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
         """Launch the Add Notification form with sample."""
 
         # Insert a sample pattern into the Add Notify schema
-        sample_pattern = ["[", "#FF0000,250", "#0000FF,250", "],3", "#FFFFFF"]
+        sample_pattern = [
+            "[",
+            '{"rgb": [255,0,0], "delay": 0.250}',
+            '{"rgb": [0,0,255], "delay": 0.250}',
+            "],5",
+            '{"rgb": [255,255,255]}',
+        ]
         defaults = (
             ADD_LIGHT_DEFAULTS
             | self._get_entry_data()
