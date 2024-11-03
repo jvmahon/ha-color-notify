@@ -10,9 +10,9 @@ import logging
 from typing import Any
 
 from homeassistant.components.light import ATTR_RGB_COLOR
-from homeassistant.const import CONF_RGB
+from homeassistant.const import CONF_RGB, CONF_DELAY
 
-from ..const import CONF_DELAY, OFF_RGB, WARM_WHITE_RGB
+from ..const import OFF_RGB, WARM_WHITE_RGB
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Callable, Coroutine
+from datetime import timedelta
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 import logging
@@ -23,6 +24,8 @@ from homeassistant.const import (
     CONF_ENTITIES,
     CONF_ENTITY_ID,
     CONF_UNIQUE_ID,
+    CONF_DELAY,
+    CONF_DELAY_TIME,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
     STATE_OFF,
@@ -32,7 +35,7 @@ from homeassistant.const import (
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import async_track_state_change_event, async_call_later
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util.color import (
     color_hs_to_RGB,
@@ -44,6 +47,7 @@ from homeassistant.util.color import (
 )
 
 from .const import (
+    ACTION_CYCLE_SAME,
     CONF_ADD,
     CONF_DELETE,
     CONF_NOTIFY_PATTERN,
@@ -297,17 +301,21 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
     async def _process_sequence_list(self):
         """Process the sequence list for the current display color and set it on the bulb."""
         if self._active_sequences:
-            next_id, next_sequence = next(iter(self._active_sequences.items()))
-            # If highest priority sequence is not in the active list then put it there.
-            if next_id not in self._visible_sequences:
-                await next_sequence.run(self.hass, self._config_entry)
-                self._visible_sequences[next_id] = next_sequence
+            top_id, top_sequence = next(iter(self._active_sequences.items()))
+            top_priority = top_sequence.priority
+            for next_id, next_sequence in self._active_sequences.items():
+                if next_sequence.priority < top_priority:
+                    break
+                # If highest priority sequence is not in the active list then put it there.
+                if next_id not in self._visible_sequences:
+                    await next_sequence.run(self.hass, self._config_entry)
+                    self._visible_sequences[next_id] = next_sequence
 
             remove_list = {
                 k: anim
                 for k, anim in self._visible_sequences.items()
                 if k not in self._active_sequences
-                or (anim is not None and anim.priority < next_sequence.priority)
+                or (anim is not None and anim.priority < top_priority)
             }
 
             # Stop animations that are lower priority than the current
@@ -316,14 +324,16 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                     await anim.stop()
                 self._visible_sequences.pop(seq_id)
 
-            # Now combine the colors
-            colors = [
-                anim.color
-                for anim in self._visible_sequences.values()
-                if anim is not None
-            ]
-            # _LOGGER.warning(colors)
-            color = NotificationLightEntity.mix_colors(colors)
+            # TODO: color mixing?
+            # # Now combine the colors
+            # colors = [
+            #     anim.color
+            #     for anim in self._visible_sequences.values()
+            #     if anim is not None
+            # ]
+            # # _LOGGER.warning(colors)
+            # color = NotificationLightEntity.mix_colors(colors)
+            color = top_sequence.color
             if color != self._last_set_color:
                 if await self._wrapped_light_turn_on(**color.light_params):
                     _LOGGER.warning(
@@ -337,10 +347,33 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
     async def _work_loop(self):
         """Worker loop to manage light."""
         # Wait until the list is not empty
+        entry_data = HassData.get_entry_data(self.hass, self._config_entry.entry_id)
         q_task: asyncio.Task | None = None
+        cycle_canceler: Callable | None = None
+        cycle_delay_time = entry_data.get(CONF_DELAY_TIME)
+        cycle_delay_enabled = entry_data.get(CONF_DELAY, False)
+        cycle_delay: timedelta | None = (
+            timedelta(**cycle_delay_time)
+            if cycle_delay_time is not None and cycle_delay_enabled
+            else None
+        )
+
         while True:
             # Update the bulb based off the current sequence list
             await self._process_sequence_list()
+
+            if (
+                cycle_delay
+                and cycle_canceler is None
+                and len(self._visible_sequences) > 1
+            ):
+
+                async def queue_cycle(_):
+                    nonlocal cycle_canceler
+                    cycle_canceler = None
+                    await self._task_queue.put(_QueueEntry(ACTION_CYCLE_SAME))
+
+                cycle_canceler = async_call_later(self.hass, cycle_delay, queue_cycle)
 
             # Now wait for a command or for an animation step
             if q_task is None or q_task.done():
@@ -380,6 +413,20 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                             key=lambda item: -item[1].priority,
                         )
                     )
+
+                if item.action == ACTION_CYCLE_SAME and self._active_sequences:
+                    # Copy the top-priority items in the sequence list.
+                    it = iter(self._active_sequences.items())
+                    new_dict = {}
+                    top_id, top_seq = next(it)
+                    top_prio = top_seq.priority
+                    for it_id, it_seq in it:
+                        if top_prio > it_seq.priority:
+                            new_dict[top_id] = top_seq
+                            top_prio = -1
+                        new_dict[it_id] = it_seq
+                    self._active_sequences = new_dict
+
                 self._task_queue.task_done()
 
             # TODO: Task needs to interpolate between current and next. We need to schedule 'enxt needed time'. If we are moving between

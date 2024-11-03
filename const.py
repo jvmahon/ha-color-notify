@@ -14,10 +14,11 @@ CONF_EXPIRE_DELAY: Final = "expire_delay"
 CONF_EXPIRE_ENABLED: Final = "expire_enabled"
 CONF_NTFCTN_ENTRIES: Final = "ntfctn_entries"
 CONF_PRIORITY: Final = "priority"
-CONF_DELAY: Final = "delay"
 CONF_DELETE: Final = "delete"
 CONF_ADD: Final = "add"
 CONF_ENTRY_ID: Final = "entry_id"
+
+ACTION_CYCLE_SAME: Final = "cycle_same"
 
 OFF_RGB: Final = (0, 0, 0)
 WARM_WHITE_RGB: Final = (255, 249, 216)

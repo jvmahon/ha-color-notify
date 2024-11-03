@@ -18,6 +18,7 @@ from homeassistant.config_entries import (
     OptionsFlow,
 )
 from homeassistant.const import (
+    CONF_DELAY,
     CONF_DELAY_TIME,
     CONF_ENTITIES,
     CONF_ENTITY_ID,
@@ -88,6 +89,8 @@ ADD_LIGHT_DEFAULTS = {
     CONF_NAME: "New Notification Light",
     CONF_RGB_SELECTOR: WARM_WHITE_RGB,
     CONF_PRIORITY: DEFAULT_PRIORITY,
+    CONF_DELAY: True,
+    CONF_DELAY_TIME: {"seconds": 5},
 }
 ADD_LIGHT_SCHEMA = vol.Schema(
     {
@@ -103,6 +106,10 @@ ADD_LIGHT_SCHEMA = vol.Schema(
         ): selector.NumberSelector(
             selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX)
         ),
+        vol.Required(CONF_DELAY, default=ADD_LIGHT_DEFAULTS[CONF_DELAY]): cv.boolean,
+        vol.Optional(
+            CONF_DELAY_TIME, default=ADD_LIGHT_DEFAULTS[CONF_DELAY_TIME]
+        ): selector.DurationSelector(selector.DurationSelectorConfig()),
     }
 )
 

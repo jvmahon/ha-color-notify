@@ -103,7 +103,9 @@
           "name": "Notification Light Name",
           "entity_id": "Light Entity To Use",
           "color_picker": "'On' color of light",
-          "priority": "'On' priority"
+          "priority": "'On' priority",
+          "delay": "Auto-cycle between same priority",
+          "delay_time": "Auto-cycle delay"
         }
       }
     }
