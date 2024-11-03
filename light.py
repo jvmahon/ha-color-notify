@@ -160,8 +160,8 @@ LIGHT_ON_SEQUENCE = _NotificationSequence(
 
 @dataclass
 class _QueueEntry:
-    action: str
-    notify_id: str
+    action: str | None = None
+    notify_id: str | None = None
     sequence: _NotificationSequence | None = None
 
 
@@ -325,9 +325,11 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             # _LOGGER.warning(colors)
             color = NotificationLightEntity.mix_colors(colors)
             if color != self._last_set_color:
-                await self._wrapped_light_turn_on(**color.light_params)
-                _LOGGER.warning(f"setting color {color} for {self._visible_sequences}")
-                self._last_set_color = color
+                if await self._wrapped_light_turn_on(**color.light_params):
+                    _LOGGER.warning(
+                        f"setting color {color} for {self._visible_sequences}"
+                    )
+                    self._last_set_color = color
 
         else:
             _LOGGER.error("Sequence list empty for %s", self.name)
@@ -417,6 +419,10 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
 
         return ColorInfo((r, g, b), brightness_total)
 
+    async def _wake_loop(self) -> None:
+        """Wake the event loop to process light sequences."""
+        await self._task_queue.put(_QueueEntry(action=None, notify_id=None))
+
     async def _add_sequence(
         self, notify_id: str, sequence: _NotificationSequence
     ) -> None:
@@ -469,8 +475,9 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             )
             self._wrapped_init_done = True
             self.async_write_ha_state()
+            await self._wake_loop()
 
-    async def _wrapped_light_turn_on(self, **kwargs: Any) -> None:
+    async def _wrapped_light_turn_on(self, **kwargs: Any) -> bool:
         """Turn on the underlying wrapped light entity."""
         if kwargs.get(ATTR_RGB_COLOR, []) == OFF_RGB:
             await self._wrapped_light_turn_off()
@@ -479,7 +486,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                 _LOGGER.warning(
                     "Can't turn on light before it is initialized: %s", self.name
                 )
-                return
+                return False
             if (
                 ATTR_RGB_COLOR in kwargs
                 and ATTR_BRIGHTNESS not in kwargs
@@ -503,6 +510,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                 SERVICE_TURN_ON,
                 service_data={ATTR_ENTITY_ID: self._wrapped_entity_id} | kwargs,
             )
+        return True
 
     async def _wrapped_light_turn_off(self, **kwargs: Any) -> None:
         """Turn off the underlying wrapped light entity."""
