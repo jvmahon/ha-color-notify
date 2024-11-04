@@ -30,7 +30,7 @@ from homeassistant.const import (
 from homeassistant.core import callback
 from homeassistant.helpers import entity_registry as er, selector
 import homeassistant.helpers.config_validation as cv
-
+from .utils.light_sequence import LightSequence
 from .const import (
     CONF_DELETE,
     CONF_EXPIRE_ENABLED,
@@ -329,10 +329,31 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Launch the Add Notification form."""
+        errors: dict[str, str] = {}
+        desc_placeholders: dict[str, str] = {}
+        schema = ADD_NOTIFY_SCHEMA
         if user_input is not None:
-            return await self.async_step_finish_add_notification(user_input)
+            # Validate
+            try:
+                LightSequence.create_from_pattern(user_input.get(CONF_NOTIFY_PATTERN))
+            except Exception as e:
+                errors["pattern"] = str(e)
+                desc_placeholders["error_detail"] = str(e)
+
+            # If no errors continue
+            if len(errors) == 0:
+                return await self.async_step_finish_add_notification(user_input)
+
+            # If errors then load in the set values and show the form again
+            schema = self.add_suggested_values_to_schema(
+                schema, suggested_values=user_input
+            )
+
         return self.async_show_form(
-            step_id="add_notification", data_schema=ADD_NOTIFY_SCHEMA
+            step_id="add_notification",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders=desc_placeholders,
         )
 
     async def async_step_add_notification_sample(
@@ -388,10 +409,22 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
         if item_data is None:
             return self.async_abort(reason="Can't locate notification to modify")
 
+        errors: dict[str, str] = {}
+        desc_placeholders: dict[str, str] = {}
         if CONF_FORCE_UPDATE in user_input:
+            # Validate
+            try:
+                LightSequence.create_from_pattern(user_input.get(CONF_NOTIFY_PATTERN))
+            except Exception as e:
+                errors["pattern"] = str(e)
+                desc_placeholders["error_detail"] = str(e)
             # FORCE_UPDATE was just a flag to indicate modification is done
-            user_input.pop(CONF_FORCE_UPDATE)
-            return await self.async_step_finish_add_notification(user_input)
+            if len(errors) == 0:
+                user_input.pop(CONF_FORCE_UPDATE)
+                return await self.async_step_finish_add_notification(user_input)
+
+            # Failed validation, show the form again.
+            item_data.update(user_input)
 
         # Merge in default values
         item_data = ADD_NOTIFY_DEFAULTS | item_data | {CONF_FORCE_UPDATE: 1}
@@ -411,7 +444,12 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
 
         schema = self.add_suggested_values_to_schema(schema, suggested_values=item_data)
 
-        return self.async_show_form(step_id="modify_notification", data_schema=schema)
+        return self.async_show_form(
+            step_id="modify_notification",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders=desc_placeholders,
+        )
 
     async def async_step_delete_notification(
         self, user_input: dict[str, Any] | None = None

@@ -71,7 +71,7 @@ class LightSequence:
         initial_color: ColorInfo | None = None
         next_loop_id: int = 1
         loop_stack: list[int] = []
-        for item in pattern:
+        for idx, item in enumerate(pattern):
             if isinstance(item, ColorInfo):
                 if initial_color is None:
                     initial_color = item
@@ -85,14 +85,18 @@ class LightSequence:
                 elif item.startswith("]"):
                     with_iter_cnt = item.split(",")
                     iter_cnt = int(with_iter_cnt[1]) if len(with_iter_cnt) == 2 else -1
+                    if len(loop_stack) == 0:
+                        raise Exception(
+                            f"Loop close in entry #{idx+1} with no open loop!"
+                        )
                     loop_id = loop_stack.pop()
                     new_sequence._addStep(_StepCloseLoop(loop_id, iter_cnt))
                 else:
                     try:
                         json_txt = f"{{{item.strip().strip('{}')}}}"  # Strip and re-add curly braces
                         item_dict = json.loads(json_txt)
-                    except:
-                        _LOGGER.exception("Failed to parse json")
+                    except Exception as e:
+                        raise Exception(f"Error in entry #{idx+1}: {str(e)}")
                     rgb = item_dict.get(
                         ATTR_RGB_COLOR, item_dict.get(CONF_RGB, WARM_WHITE_RGB)
                     )
@@ -104,7 +108,10 @@ class LightSequence:
                     if delay := item_dict.get(CONF_DELAY):
                         new_sequence._addStep(_StepDelay(delay))
         new_sequence._workspace.color = initial_color or ColorInfo(OFF_RGB, 0)
-        # TODO:  Get the options flow to validate the json that is entered
+        if len(loop_stack) > 0:
+            raise Exception(
+                f"The loop opened at entry #{loop_stack[0]} was not closed!"
+            )
         return new_sequence
 
     @property

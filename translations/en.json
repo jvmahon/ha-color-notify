@@ -109,5 +109,8 @@
         }
       }
     }
+  },
+  "error": {
+    "pattern_error": "Error parsing pattern! {error_detail}"
   }
 }
