@@ -30,7 +30,7 @@ from homeassistant.const import (
 from homeassistant.core import callback
 from homeassistant.helpers import entity_registry as er, selector
 import homeassistant.helpers.config_validation as cv
-from .utils.light_sequence import LightSequence
+
 from .const import (
     CONF_DELETE,
     CONF_EXPIRE_ENABLED,
@@ -44,6 +44,7 @@ from .const import (
     WARM_WHITE_RGB,
 )
 from .utils.hass_data import HassData
+from .utils.light_sequence import LightSequence
 
 _LOGGER = logging.getLogger(__name__)
 

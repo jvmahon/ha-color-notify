@@ -1,19 +1,15 @@
+from homeassistant.const import CONF_ENTITY_ID, CONF_NAME, CONF_TYPE, CONF_UNIQUE_ID
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
+
 from ..const import (
+    CONF_NTFCTN_ENTRIES,
     CONF_PRIORITY,
     DEFAULT_PRIORITY,
-    CONF_NTFCTN_ENTRIES,
     DOMAIN,
     TYPE_LIGHT,
     TYPE_POOL,
 )
-from homeassistant.const import (
-    CONF_NAME,
-    CONF_ENTITY_ID,
-    CONF_TYPE,
-    CONF_UNIQUE_ID,
-)
-from homeassistant.helpers import entity_registry as er, selector
 
 
 class HassData:

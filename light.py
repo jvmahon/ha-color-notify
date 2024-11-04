@@ -49,8 +49,8 @@ from homeassistant.util.color import (
 from .const import (
     ACTION_CYCLE_SAME,
     CONF_ADD,
-    CONF_EXPIRE_ENABLED,
     CONF_DELETE,
+    CONF_EXPIRE_ENABLED,
     CONF_NOTIFY_PATTERN,
     CONF_PRIORITY,
     CONF_RGB_SELECTOR,
