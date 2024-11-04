@@ -244,12 +244,23 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         pool_subs: list[str] = hass_data.get(TYPE_POOL, [])
         entity_subs: list[str] = hass_data.get(CONF_ENTITIES, [])
 
-        # Add the handle_change callback to the HassData pool info
+        # Subscribe to the pool by adding _handle_notification_change to pool callbacks list
         for pool in pool_subs:
             pool_callbacks: set[Callable] = HassData.get_runtime_data(pool).setdefault(
                 CONF_SUBSCRIPTION, set()
             )
             pool_callbacks.add(self._handle_notification_change)
+
+            # Fire state_changed to get initial notification state
+            for notif in HassData.get_all_entities(self.hass, pool):
+                self.hass.bus.async_fire(
+                    "state_changed",
+                    {
+                        ATTR_ENTITY_ID: notif.entity_id,
+                        "new_state": self.hass.states.get(notif.entity_id),
+                        "old_state": None,
+                    },
+                )
 
         for entity in entity_subs:
             self._config_entry.async_on_unload(
