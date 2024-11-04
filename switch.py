@@ -137,7 +137,10 @@ class NotificationSwitchEntity(ToggleEntity, RestoreEntity):
         expire_time = self.extra_state_attributes.get(CONF_DELAY_TIME, None)
         if expire_time is None:
             return
-        delay_sec = timedelta(**expire_time)
+        delay_sec: float = timedelta(**expire_time).seconds
+        # If delay is 0 then auto-clear after animation plays
+        if delay_sec == 0:
+            return
 
         async def turn_off_wrapper(*args, **kwargs):
             await self.async_turn_off()

@@ -49,6 +49,7 @@ from homeassistant.util.color import (
 from .const import (
     ACTION_CYCLE_SAME,
     CONF_ADD,
+    CONF_EXPIRE_ENABLED,
     CONF_DELETE,
     CONF_NOTIFY_PATTERN,
     CONF_PRIORITY,
@@ -95,10 +96,14 @@ class _NotificationSequence:
         self,
         pattern: list[str | ColorInfo],
         priority: int = DEFAULT_PRIORITY,
+        notify_id: str | None = None,
+        clear_delay: float | None = None,
     ) -> None:
         self.priority = priority
 
         self._sequence: LightSequence = LightSequence.create_from_pattern(pattern)
+        self._notify_id: str | None = notify_id
+        self._clear_delay: float | None = clear_delay
         self._task: asyncio.Task | None = None
         self._stop_event: asyncio.Event | None = None
         self._color: ColorInfo = ColorInfo(OFF_RGB, 0)
@@ -118,6 +123,7 @@ class _NotificationSequence:
     async def _worker_func(self, stop_event: asyncio.Event):
         """Coroutine to run the animation until finished or interrupted."""
         # TODO: Is this extra task needed around sequence?
+        _LOGGER.info("Starting sequence %s", self._notify_id)
         done = False
         try:
             while not done and not stop_event.is_set():
@@ -128,13 +134,21 @@ class _NotificationSequence:
                     self._color = self._sequence.color
         except Exception as e:
             _LOGGER.exception("Failed running NotificationAnimation")
-        _LOGGER.warning("Done with worker func for NotificationAnimation")
+        _LOGGER.info("Finished sequence %s", self._notify_id)
+        # Autoclear after animation if delay is 0
+        if self._clear_delay is not None and self._clear_delay == 0:
+            await self._hass.services.async_call(
+                Platform.SWITCH,
+                SERVICE_TURN_OFF,
+                service_data={ATTR_ENTITY_ID: self._notify_id},
+            )
 
     async def run(self, hass: HomeAssistant, config_entry: ConfigEntry):
         if self._stop_event:
             self._stop_event.set()
         self._stop_event = asyncio.Event()
         self._color = self._sequence.color
+        self._hass = hass
         self._task = config_entry.async_create_background_task(
             hass, self._worker_func(self._stop_event), name="Animation worker"
         )
@@ -290,7 +304,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
 
     async def _process_sequence_list(self):
         """Process the sequence list for the current display color and set it on the bulb."""
-        if self._active_sequences:
+        if len(self._active_sequences) > 0:
             top_id, top_sequence = next(iter(self._active_sequences.items()))
             top_priority = top_sequence.priority
             for next_id, next_sequence in self._active_sequences.items():
@@ -326,9 +340,6 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             color = top_sequence.color
             if color != self._last_set_color:
                 if await self._wrapped_light_turn_on(**color.light_params):
-                    _LOGGER.warning(
-                        f"setting color {color} for {self._visible_sequences}"
-                    )
                     self._last_set_color = color
 
         else:
@@ -362,6 +373,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             # Update the bulb based off the current sequence list
             await self._process_sequence_list()
 
+            # Schedule cycling through same-priority notifications
             if (
                 cycle_delay
                 and cycle_canceler is None
@@ -393,7 +405,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                 item = await q_task
                 _LOGGER.error(f"Got q: {item}")
 
-                if item.action in (CONF_ADD, CONF_DELETE):
+                if item.action == CONF_DELETE:
                     _LOGGER.warning(
                         "Action: %s %s [step delete]", item.action, item.notify_id
                     )
@@ -403,7 +415,11 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                             await anim.stop()
                             self._visible_sequences.pop(item.notify_id)
 
-                if item.action == CONF_ADD and item.sequence:
+                if (
+                    item.action == CONF_ADD
+                    and item.sequence
+                    and item.notify_id not in self._active_sequences
+                ):
                     _LOGGER.warning("Action: %s %s", item.action, item.notify_id)
                     # Add the new sequence in, sorted by priority
                     self._active_sequences[item.notify_id] = item.sequence
@@ -492,7 +508,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         notify_id = event.data[CONF_ENTITY_ID]
         if is_on:
             sequence = self._create_sequence_from_attr(
-                event.data["new_state"].attributes
+                event.data["new_state"].attributes, notify_id
             )
             await self._add_sequence(notify_id, sequence)
         else:
@@ -576,14 +592,24 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         return (h, s, v)
 
     def _create_sequence_from_attr(
-        self, attributes: dict[str, Any]
+        self, attributes: dict[str, Any], notify_id: str | None = None
     ) -> _NotificationSequence:
         """Create a light NotifySequence from a notification attributes."""
         pattern = attributes.get(CONF_NOTIFY_PATTERN)
         if not pattern:
             pattern = [ColorInfo(rgb=attributes.get(CONF_RGB_SELECTOR, WARM_WHITE_RGB))]
+        expire_enabled = attributes.get(CONF_EXPIRE_ENABLED, False)
+        expire_time = attributes.get(CONF_DELAY_TIME) if expire_enabled else None
+        delay_sec: float | None = (
+            float(timedelta(**expire_time).seconds) if expire_time else None
+        )
         priority = attributes.get(CONF_PRIORITY, DEFAULT_PRIORITY)
-        return _NotificationSequence(pattern=pattern, priority=priority)
+        return _NotificationSequence(
+            pattern=pattern,
+            priority=priority,
+            notify_id=notify_id,
+            clear_delay=delay_sec,
+        )
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Handle a turn_on service call."""
