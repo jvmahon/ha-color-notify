@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import asyncio
+from copy import copy
 from dataclasses import dataclass, field, replace
 import json
 import logging
@@ -49,6 +50,7 @@ class LightSequence:
         """Initialize a new LightSequence."""
         self._steps: list[_SeqStep] = []
         self._workspace: _SeqWorkspace = _SeqWorkspace()
+        self._loops_forever: bool = False
 
     async def runNextStep(self) -> bool:
         """Run the next step, returning 'True' if done."""
@@ -84,6 +86,12 @@ class LightSequence:
                     next_loop_id += 1
                 elif item.startswith("]"):
                     with_iter_cnt = item.split(",")
+                    if len(with_iter_cnt) == 2:
+                        iter_cnt = int(with_iter_cnt[1])
+                    else:
+                        iter_cnt = -1
+                        new_sequence._loops_forever = True
+
                     iter_cnt = int(with_iter_cnt[1]) if len(with_iter_cnt) == 2 else -1
                     if len(loop_stack) == 0:
                         raise Exception(
@@ -95,11 +103,9 @@ class LightSequence:
                     try:
                         json_txt = f"{{{item.strip().strip('{}')}}}"  # Strip and re-add curly braces
                         item_dict = json.loads(json_txt)
+                        rgb = item_dict.get(ATTR_RGB_COLOR, item_dict[CONF_RGB])
                     except Exception as e:
                         raise Exception(f"Error in entry #{idx+1}: {str(e)}")
-                    rgb = item_dict.get(
-                        ATTR_RGB_COLOR, item_dict.get(CONF_RGB, WARM_WHITE_RGB)
-                    )
                     color = ColorInfo(rgb=rgb)
                     if initial_color is None:
                         initial_color = color
@@ -115,12 +121,17 @@ class LightSequence:
         return new_sequence
 
     @property
-    def color(self):
+    def loops_forever(self) -> bool:
+        """Return True if this sequence loops forever."""
+        return self._loops_forever
+
+    @property
+    def color(self) -> ColorInfo:
         """Return this sequence's current color."""
-        return replace(self._workspace.color)
+        return copy(self._workspace.color)
 
     @color.setter
-    def color(self, value: ColorInfo):
+    def color(self, value: ColorInfo) -> None:
         """Override this sequence's current color."""
         self._workspace.color = value
 

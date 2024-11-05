@@ -16,6 +16,8 @@ CONF_PRIORITY: Final = "priority"
 CONF_DELETE: Final = "delete"
 CONF_ADD: Final = "add"
 CONF_ENTRY_ID: Final = "entry_id"
+CONF_PEEK_TIME: Final = "peek_time"
+CONF_PEEK_ENABLED: Final = "peek_enabled"
 
 ACTION_CYCLE_SAME: Final = "cycle_same"
 
@@ -23,3 +25,4 @@ OFF_RGB: Final = (0, 0, 0)
 WARM_WHITE_RGB: Final = (255, 249, 216)
 
 DEFAULT_PRIORITY: Final = 1000
+MAXIMUM_PRIORITY: Final = 99999999

@@ -35,10 +35,13 @@ from .const import (
     CONF_DELETE,
     CONF_EXPIRE_ENABLED,
     CONF_NOTIFY_PATTERN,
+    CONF_PEEK_ENABLED,
+    CONF_PEEK_TIME,
     CONF_PRIORITY,
     CONF_RGB_SELECTOR,
     DEFAULT_PRIORITY,
     DOMAIN,
+    MAXIMUM_PRIORITY,
     TYPE_LIGHT,
     TYPE_POOL,
     WARM_WHITE_RGB,
@@ -56,6 +59,7 @@ ADD_NOTIFY_DEFAULTS = {
     CONF_DELAY_TIME: {"seconds": 0},
     CONF_EXPIRE_ENABLED: False,
     CONF_PRIORITY: DEFAULT_PRIORITY,
+    CONF_PEEK_ENABLED: True,
 }
 ADD_NOTIFY_SCHEMA = vol.Schema(
     {
@@ -63,8 +67,13 @@ ADD_NOTIFY_SCHEMA = vol.Schema(
         vol.Required(
             CONF_PRIORITY, default=ADD_NOTIFY_DEFAULTS[CONF_PRIORITY]
         ): selector.NumberSelector(
-            selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX)
+            selector.NumberSelectorConfig(
+                mode=selector.NumberSelectorMode.BOX, min=1, max=MAXIMUM_PRIORITY
+            )
         ),
+        vol.Required(
+            CONF_PEEK_ENABLED, default=ADD_NOTIFY_DEFAULTS[CONF_PEEK_ENABLED]
+        ): cv.boolean,
         vol.Required(
             CONF_EXPIRE_ENABLED, default=ADD_NOTIFY_DEFAULTS[CONF_EXPIRE_ENABLED]
         ): cv.boolean,
@@ -92,6 +101,7 @@ ADD_LIGHT_DEFAULTS = {
     CONF_PRIORITY: DEFAULT_PRIORITY,
     CONF_DELAY: True,
     CONF_DELAY_TIME: {"seconds": 5},
+    CONF_PEEK_TIME: {"seconds": 5},
 }
 ADD_LIGHT_SCHEMA = vol.Schema(
     {
@@ -105,11 +115,16 @@ ADD_LIGHT_SCHEMA = vol.Schema(
         vol.Optional(
             CONF_PRIORITY, default=ADD_LIGHT_DEFAULTS[CONF_PRIORITY]
         ): selector.NumberSelector(
-            selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX)
+            selector.NumberSelectorConfig(
+                mode=selector.NumberSelectorMode.BOX, min=1, max=MAXIMUM_PRIORITY
+            )
         ),
         vol.Required(CONF_DELAY, default=ADD_LIGHT_DEFAULTS[CONF_DELAY]): cv.boolean,
         vol.Optional(
             CONF_DELAY_TIME, default=ADD_LIGHT_DEFAULTS[CONF_DELAY_TIME]
+        ): selector.DurationSelector(selector.DurationSelectorConfig()),
+        vol.Optional(
+            CONF_PEEK_TIME, default=ADD_LIGHT_DEFAULTS[CONF_PEEK_TIME]
         ): selector.DurationSelector(selector.DurationSelectorConfig()),
     }
 )

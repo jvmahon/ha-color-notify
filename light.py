@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Callable, Coroutine
+from copy import copy
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from functools import cached_property
@@ -52,10 +53,13 @@ from .const import (
     CONF_DELETE,
     CONF_EXPIRE_ENABLED,
     CONF_NOTIFY_PATTERN,
+    CONF_PEEK_ENABLED,
+    CONF_PEEK_TIME,
     CONF_PRIORITY,
     CONF_RGB_SELECTOR,
     CONF_SUBSCRIPTION,
     DEFAULT_PRIORITY,
+    MAXIMUM_PRIORITY,
     OFF_RGB,
     TYPE_POOL,
     WARM_WHITE_RGB,
@@ -98,8 +102,9 @@ class _NotificationSequence:
         priority: int = DEFAULT_PRIORITY,
         notify_id: str | None = None,
         clear_delay: float | None = None,
+        peek_enabled: bool = True,
     ) -> None:
-        self.priority = priority
+        self.priority: int = priority
 
         self._sequence: LightSequence = LightSequence.create_from_pattern(pattern)
         self._notify_id: str | None = notify_id
@@ -107,6 +112,7 @@ class _NotificationSequence:
         self._task: asyncio.Task | None = None
         self._stop_event: asyncio.Event | None = None
         self._color: ColorInfo = ColorInfo(OFF_RGB, 0)
+        self._peek_enabled: bool = peek_enabled
         self._step_finished: asyncio.Event = asyncio.Event()
         self._step_finished.set()
 
@@ -114,8 +120,16 @@ class _NotificationSequence:
         return f"Animation Pri: {self.priority} Sequence: {self._sequence}"
 
     @property
+    def peek_enabled(self) -> bool:
+        return self._peek_enabled
+
+    @property
     def color(self) -> ColorInfo:
-        return self._color
+        return copy(self._color)
+
+    @property
+    def notify_id(self) -> str | None:
+        return self._notify_id
 
     def wait(self) -> Coroutine:
         return self._step_finished.wait()
@@ -136,7 +150,7 @@ class _NotificationSequence:
             _LOGGER.exception("Failed running NotificationAnimation")
         _LOGGER.info("Finished sequence %s", self._notify_id)
         # Autoclear after animation if delay is 0
-        if self._clear_delay is not None and self._clear_delay == 0:
+        if self._clear_delay == 0:
             await self._hass.services.async_call(
                 Platform.SWITCH,
                 SERVICE_TURN_OFF,
@@ -165,8 +179,19 @@ class _NotificationSequence:
             and not self._stop_event.is_set()
         )
 
+    @property
+    def loops_forever(self) -> bool:
+        """Return if the loop never ends."""
+        return self._sequence.loops_forever
+
+    @property
+    def clear_delay(self) -> float | None:
+        """Return number of seconds to auto-clear."""
+        return self._clear_delay
+
 
 LIGHT_OFF_SEQUENCE = _NotificationSequence(
+    notify_id=STATE_OFF,
     pattern=[ColorInfo(OFF_RGB, 0)],
     priority=0,
 )
@@ -313,6 +338,15 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             if anim and anim.is_running()
         }
 
+    @callback
+    def _sort_active_sequences(self) -> None:
+        self._active_sequences = dict(
+            sorted(
+                self._active_sequences.items(),
+                key=lambda item: -item[1].priority,
+            )
+        )
+
     async def _process_sequence_list(self):
         """Process the sequence list for the current display color and set it on the bulb."""
         if len(self._active_sequences) > 0:
@@ -330,7 +364,11 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                 k: anim
                 for k, anim in self._visible_sequences.items()
                 if k not in self._active_sequences
-                or (anim is not None and anim.priority < top_priority)
+                or (
+                    anim is not None
+                    and anim.priority < top_priority
+                    and anim.notify_id != STATE_OFF
+                )
             }
 
             # Stop animations that are lower priority than the current
@@ -379,6 +417,12 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             if cycle_delay_time is not None and cycle_delay_enabled
             else None
         )
+        peek_duration_time = entry_data.get(CONF_PEEK_TIME)
+        peek_duration: int = (
+            timedelta(**peek_duration_time).seconds
+            if peek_duration_time is not None
+            else 0
+        )
 
         while True:
             # Update the bulb based off the current sequence list
@@ -413,7 +457,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                 return_when=asyncio.FIRST_COMPLETED,
             )
             if q_task in done:
-                item = await q_task
+                item: _QueueEntry = await q_task
                 _LOGGER.error(f"Got q: {item}")
 
                 if item.action == CONF_DELETE:
@@ -432,27 +476,50 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                     and item.notify_id not in self._active_sequences
                 ):
                     _LOGGER.warning("Action: %s %s", item.action, item.notify_id)
+
+                    async def restore_priority(
+                        _,
+                        priority=item.sequence.priority,
+                        notify_id=item.notify_id,
+                    ):
+                        # Restore the priority and wake the event loop to resort the notifications
+                        sequence = self._active_sequences.get(notify_id)
+                        if sequence is not None:
+                            sequence.priority = priority
+                        self._sort_active_sequences()
+                        await self._wake_loop()
+
+                    # Temporarily give high priority for peeks
+                    if (
+                        peek_duration > 0
+                        and item.sequence.peek_enabled
+                        and item.notify_id != STATE_OFF
+                    ):
+                        auto_clears = (
+                            item.sequence.clear_delay == 0
+                            and not item.sequence.loops_forever
+                        )
+                        item.sequence.priority += MAXIMUM_PRIORITY
+                        if not auto_clears:
+                            async_call_later(self.hass, peek_duration, restore_priority)
+
                     # Add the new sequence in, sorted by priority
                     self._active_sequences[item.notify_id] = item.sequence
-                    self._active_sequences = dict(
-                        sorted(
-                            self._active_sequences.items(),
-                            key=lambda item: -item[1].priority,
-                        )
-                    )
+                    self._sort_active_sequences()
 
                 if item.action == ACTION_CYCLE_SAME and self._active_sequences:
                     # Copy the top-priority items in the sequence list.
                     it = iter(self._active_sequences.items())
                     new_dict = {}
                     top_id, top_seq = next(it)
-                    top_prio = top_seq.priority
-                    for it_id, it_seq in it:
-                        if top_prio > it_seq.priority:
-                            new_dict[top_id] = top_seq
-                            top_prio = -1
-                        new_dict[it_id] = it_seq
-                    self._active_sequences = new_dict
+                    if top_id != STATE_OFF:
+                        top_prio = top_seq.priority
+                        for it_id, it_seq in it:
+                            if top_prio > it_seq.priority:
+                                new_dict[top_id] = top_seq
+                                top_prio = -1
+                            new_dict[it_id] = it_seq
+                        self._active_sequences = new_dict
 
                 self._task_queue.task_done()
 
@@ -620,6 +687,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             priority=priority,
             notify_id=notify_id,
             clear_delay=delay_sec,
+            peek_enabled=attributes.get(CONF_PEEK_ENABLED, True),
         )
 
     async def async_turn_on(self, **kwargs: Any) -> None:

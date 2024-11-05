@@ -108,6 +108,21 @@ class HassData:
         hass: HomeAssistant, config_entry_id: str
     ) -> dict[str, str]:
         """Get list of notifications for display in config list."""
+        items_by_uuid = HassData.get_entries_by_uuid(hass, config_entry_id)
+        entities = HassData.get_config_notifications(hass, config_entry_id)
+        # Set up multi-select
+        ntfctn_unique_ids = {
+            e.unique_id: f"{items_by_uuid.get(e.unique_id, {}).get(CONF_NAME)} [{e.entity_id}] Prio: {items_by_uuid.get(e.unique_id, {}).get(CONF_PRIORITY):.0f}"
+            for e in entities
+        }
+        return ntfctn_unique_ids
+
+    @callback
+    @staticmethod
+    def get_config_notifications(
+        hass: HomeAssistant, config_entry_id: str
+    ) -> list[er.RegistryEntry]:
+        """Get list of notifications for display in config list."""
         entities = HassData.get_all_entities(hass, config_entry_id)
         items_by_uuid = HassData.get_entries_by_uuid(hass, config_entry_id)
         entities.sort(
@@ -115,12 +130,7 @@ class HassData:
                 CONF_PRIORITY, DEFAULT_PRIORITY
             )
         )
-        # Set up multi-select
-        ntfctn_unique_ids = {
-            e.unique_id: f"{items_by_uuid.get(e.unique_id, {}).get(CONF_NAME)} [{e.entity_id}] Prio: {items_by_uuid.get(e.unique_id, {}).get(CONF_PRIORITY):.0f}"
-            for e in entities
-        }
-        return ntfctn_unique_ids
+        return entities
 
     @callback
     @staticmethod

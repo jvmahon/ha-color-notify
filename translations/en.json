@@ -24,7 +24,7 @@
         "title": "Set up the new notification light wrapper",
         "data": {
           "name": "Name for new notification light",
-          "color_picker": "Default 'on' color for light",
+          "color_picker": "Default 'On' color of light",
           "entity_id": "Light entity to control"
         }
       },
@@ -32,7 +32,7 @@
         "title": "Update light settings",
         "name": "Currently modifying",
         "entity_id": "Light entity to control",
-        "color_picker": "Default 'on' color for the light"
+        "color_picker": "Default 'On' color of light"
       }
     }
   },
@@ -48,13 +48,14 @@
         }
       },
       "add_notification": {
-        "description": "Set up the notification below.\n&bull;Color Picker can set a solid color or look up #RRGGBB values for pattern use.\n&bull;Create a pattern by using the +Add button.\n&bull;Auto-Clear with a 0s timeout clears immediately after pattern finishes.\n&bull;Any other timeout is measured from notification start.\n&bull;Larger numbers are higher priority.",
+        "description": "Set up the notification below.\n&bull;Color Picker can set a solid color or look up RGB values for pattern use.\n&bull;Create a pattern by using the +Add button.\n&bull;Auto-Clear with a 0s timeout clears immediately after pattern finishes.\n&bull;Any other timeout is measured from notification start.\n&bull;Larger numbers are higher priority.",
         "data": {
           "name": "Name for notification",
           "expire_enabled": "Automatically clear after timeout?",
           "delay_time": "Auto-clear timeout",
           "pattern": "'[' or '], loopcnt' or '{\"rgb\": [255,0,0], \"delay\": 1.5}'",
           "color_picker": "Select a solid color, or use '+Add' to create a pattern",
+          "peek_enabled": "Temporarily show on activation, regardless of priority.",
           "unique_id": ""
         }
       },
@@ -66,13 +67,14 @@
       },
       "modify_notification": {
         "_comment": "[%key:component] references don't seem to work for custom_component. It'd be nice if this could reference above.",
-        "description": "Set up the notification below.\n&bull;Color Picker can set a solid color or look up #RRGGBB values for pattern use.\n&bull;Create a pattern by using the +Add button.\n&bull;Auto-Clear with a 0s timeout clears immediately after pattern finishes.\n&bull;Any other timeout is measured from notification start.\n&bull;Larger numbers are higher priority.",
+        "description": "Set up the notification below.\n&bull;Color Picker can set a solid color or look up RGB values for pattern use.\n&bull;Create a pattern by using the +Add button.\n&bull;Auto-Clear with a 0s timeout clears immediately after pattern finishes.\n&bull;Any other timeout is measured from notification start.\n&bull;Larger numbers are higher priority.",
         "data": {
           "name": "Name for notification",
           "expire_enabled": "Automatically clear after timeout?",
           "delay_time": "Auto-clear timeout",
-          "pattern": "'[' or '], loopcnt' or '{\"rgb\": [255,0,0], \"delay\": 1.5}'",
+          "pattern": "eg, '[' or '], loopcnt' or '{\"rgb\": [255,0,0], \"delay\": 1.5}'",
           "color_picker": "Select a solid color, or use '+Add' to create a pattern",
+          "peek_enabled": "Temporarily show on activation, regardless of priority.",
           "unique_id": ""
         }
       },
@@ -102,9 +104,10 @@
         "data": {
           "name": "Notification Light Name",
           "entity_id": "Light Entity To Use",
-          "color_picker": "'On' color of light",
+          "color_picker": "Default 'On' color of light",
           "priority": "'On' priority",
-          "delay": "Auto-cycle between same priority",
+          "peek_time": "Duration to temporarily display lower-priority notifications",
+          "delay": "Auto-cycle between same priority notifications",
           "delay_time": "Auto-cycle delay"
         }
       }
