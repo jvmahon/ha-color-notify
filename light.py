@@ -51,6 +51,7 @@ from .const import (
     ACTION_CYCLE_SAME,
     CONF_ADD,
     CONF_DELETE,
+    CONF_DYNAMIC_PRIORITY,
     CONF_EXPIRE_ENABLED,
     CONF_NOTIFY_PATTERN,
     CONF_PEEK_ENABLED,
@@ -231,6 +232,9 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         self._visible_sequences: dict[str, _NotificationSequence] = {}
         self._active_sequences: dict[str, _NotificationSequence] = {}
         self._last_set_color: ColorInfo | None = None
+        self._dynamic_priority: bool = self._config_entry.options.get(
+            CONF_DYNAMIC_PRIORITY, True
+        )
 
         self._task_queue: asyncio.Queue[_QueueEntry] = asyncio.Queue()
         self._task: asyncio.Task | None = None
@@ -304,7 +308,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             )
 
         # Add the 'OFF' sequence so the list isn't empty
-        await self._add_sequence(STATE_OFF, LIGHT_OFF_SEQUENCE)
+        self._active_sequences[STATE_OFF] = LIGHT_OFF_SEQUENCE
 
         restored_state = await self.async_get_last_state()
         if restored_state:
@@ -347,10 +351,15 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             )
         )
 
+    @callback
+    def _get_top_sequence(self) -> _NotificationSequence:
+        """Return the top priority active sequence."""
+        return next(iter(self._active_sequences.values()))
+
     async def _process_sequence_list(self):
         """Process the sequence list for the current display color and set it on the bulb."""
         if len(self._active_sequences) > 0:
-            top_id, top_sequence = next(iter(self._active_sequences.items()))
+            top_sequence = self._get_top_sequence()
             top_priority = top_sequence.priority
             for next_id, next_sequence in self._active_sequences.items():
                 if next_sequence.priority < top_priority:
@@ -707,11 +716,14 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         else:
             rgb = self._last_on_rgb
 
+        priority = self._light_on_priority
+        if self._dynamic_priority:
+            top_sequence: _NotificationSequence = self._get_top_sequence()
+            priority = max(priority, top_sequence.priority) + 0.5
+
         self._last_on_rgb = rgb
         sequence = replace(
-            LIGHT_ON_SEQUENCE,
-            pattern=[ColorInfo(rgb=rgb)],
-            priority=self._light_on_priority,
+            LIGHT_ON_SEQUENCE, pattern=[ColorInfo(rgb=rgb)], priority=priority
         )
 
         await self._add_sequence(STATE_ON, sequence)
@@ -725,10 +737,13 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
 
     async def async_toggle(self, **kwargs: Any) -> None:
         """Handle a toggle service call."""
-        if self.is_on:
-            await self.async_turn_off(**kwargs)
-        else:
+        # Turn 'on' the light if it is off, or if dynamic priority is enabled and 'on' isn't top.
+        if not self.is_on or (
+            self._dynamic_priority and self._get_top_sequence().notify_id != STATE_ON
+        ):
             await self.async_turn_on(**kwargs)
+        else:
+            await self.async_turn_off(**kwargs)
 
     @property
     def capability_attributes(self) -> dict[str, Any] | None:

@@ -33,6 +33,7 @@ import homeassistant.helpers.config_validation as cv
 
 from .const import (
     CONF_DELETE,
+    CONF_DYNAMIC_PRIORITY,
     CONF_EXPIRE_ENABLED,
     CONF_NOTIFY_PATTERN,
     CONF_PEEK_ENABLED,
@@ -99,6 +100,7 @@ ADD_LIGHT_DEFAULTS = {
     CONF_NAME: "New Notification Light",
     CONF_RGB_SELECTOR: WARM_WHITE_RGB,
     CONF_PRIORITY: DEFAULT_PRIORITY,
+    CONF_DYNAMIC_PRIORITY: True,
     CONF_DELAY: True,
     CONF_DELAY_TIME: {"seconds": 5},
     CONF_PEEK_TIME: {"seconds": 5},
@@ -112,6 +114,9 @@ ADD_LIGHT_SCHEMA = vol.Schema(
         vol.Optional(
             CONF_RGB_SELECTOR, default=ADD_LIGHT_DEFAULTS[CONF_RGB_SELECTOR]
         ): selector.ColorRGBSelector(),
+        vol.Required(
+            CONF_DYNAMIC_PRIORITY, default=ADD_LIGHT_DEFAULTS[CONF_DYNAMIC_PRIORITY]
+        ): cv.boolean,
         vol.Optional(
             CONF_PRIORITY, default=ADD_LIGHT_DEFAULTS[CONF_PRIORITY]
         ): selector.NumberSelector(

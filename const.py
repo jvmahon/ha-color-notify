@@ -18,6 +18,7 @@ CONF_ADD: Final = "add"
 CONF_ENTRY_ID: Final = "entry_id"
 CONF_PEEK_TIME: Final = "peek_time"
 CONF_PEEK_ENABLED: Final = "peek_enabled"
+CONF_DYNAMIC_PRIORITY: Final = "dynamic_priority"
 
 ACTION_CYCLE_SAME: Final = "cycle_same"
 

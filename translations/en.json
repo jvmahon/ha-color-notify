@@ -105,7 +105,8 @@
           "name": "Notification Light Name",
           "entity_id": "Light Entity To Use",
           "color_picker": "Default 'On' color of light",
-          "priority": "'On' priority",
+          "priority": "Minimum 'On' priority.",
+          "dynamic_priority": "Dynamic 'On' Priority (inherit active light priority + 0.5 when switched on)",
           "peek_time": "Duration to temporarily display lower-priority notifications",
           "delay": "Auto-cycle between same priority notifications",
           "delay_time": "Auto-cycle delay"
