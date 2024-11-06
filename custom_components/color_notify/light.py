@@ -1,4 +1,4 @@
-"""Light platform for Notify Light-er integration."""
+"""Light platform for ColorNotify integration."""
 
 import asyncio
 from collections.abc import Callable, Coroutine
@@ -76,7 +76,7 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Initialize Notify Light-er config entry."""
+    """Initialize ColorNotify config entry."""
     registry = er.async_get(hass)
     wrapped_entity_id = er.async_validate_entity_id(
         registry, config_entry.data[CONF_ENTITY_ID]
@@ -138,7 +138,6 @@ class _NotificationSequence:
     async def _worker_func(self, stop_event: asyncio.Event):
         """Coroutine to run the animation until finished or interrupted."""
         # TODO: Is this extra task needed around sequence?
-        _LOGGER.info("Starting sequence %s", self._notify_id)
         done = False
         try:
             while not done and not stop_event.is_set():
@@ -149,7 +148,6 @@ class _NotificationSequence:
                     self._color = self._sequence.color
         except Exception as e:
             _LOGGER.exception("Failed running NotificationAnimation")
-        _LOGGER.info("Finished sequence %s", self._notify_id)
         # Autoclear after animation if delay is 0
         if self._clear_delay == 0:
             await self._hass.services.async_call(
@@ -210,7 +208,7 @@ class _QueueEntry:
 
 
 class NotificationLightEntity(LightEntity, RestoreEntity):
-    """notify_lighter Light."""
+    """ColorNotify Light entity."""
 
     _attr_should_poll = False
 
@@ -221,7 +219,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         wrapped_entity_id: str,
         config_entry: ConfigEntry,
     ) -> None:
-        """Initialize notify_lighter light."""
+        """Initialize light."""
         super().__init__()
         self._wrapped_entity_id: str = wrapped_entity_id
         self._wrapped_init_done: bool = False
@@ -393,7 +391,6 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             #     for anim in self._visible_sequences.values()
             #     if anim is not None
             # ]
-            # # _LOGGER.warning(colors)
             # color = NotificationLightEntity.mix_colors(colors)
             color = top_sequence.color
             if color != self._last_set_color:
@@ -458,21 +455,14 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                 asyncio.create_task(x) for x in self._get_sequence_step_events()
             ]
             wait_tasks.append(q_task)
-            _LOGGER.warning(
-                f"Waiting for asyncio  {self._task_queue.qsize()} {hex(id(self._task_queue))}"
-            )
             done, pending = await asyncio.wait(
                 wait_tasks,
                 return_when=asyncio.FIRST_COMPLETED,
             )
             if q_task in done:
                 item: _QueueEntry = await q_task
-                _LOGGER.error(f"Got q: {item}")
 
                 if item.action == CONF_DELETE:
-                    _LOGGER.warning(
-                        "Action: %s %s [step delete]", item.action, item.notify_id
-                    )
                     if item.notify_id in self._active_sequences:
                         anim = self._active_sequences.pop(item.notify_id)
                         if item.notify_id in self._visible_sequences:
@@ -484,7 +474,6 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                     and item.sequence
                     and item.notify_id not in self._active_sequences
                 ):
-                    _LOGGER.warning("Action: %s %s", item.action, item.notify_id)
 
                     async def restore_priority(
                         _,
@@ -573,18 +562,12 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         self, notify_id: str, sequence: _NotificationSequence
     ) -> None:
         """Add a sequence to this light."""
-        _LOGGER.error(
-            f"Adding {notify_id} add to worker queue {hex(id(self._task_queue))}"
-        )
         await self._task_queue.put(
             _QueueEntry(action=CONF_ADD, notify_id=notify_id, sequence=sequence)
         )
 
     async def _remove_sequence(self, notify_id: str) -> None:
         """Remove a sequence from this light."""
-        _LOGGER.error(
-            f"Adding {notify_id} delete to worker queue {hex(id(self._task_queue))}"
-        )
         await self._task_queue.put(_QueueEntry(notify_id=notify_id, action=CONF_DELETE))
 
     async def _handle_notification_change(

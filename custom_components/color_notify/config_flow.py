@@ -1,4 +1,4 @@
-"""Config flow for Notify Light-er integration."""
+"""Config flow for ColorNotify integration."""
 
 from __future__ import annotations
 
@@ -159,7 +159,7 @@ SUBSCRIPTION_SCHEMA = vol.Schema(
 
 
 class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
-    """Handle a config or options flow for Notify Light-er."""
+    """Handle a config or options flow for ColorNotify."""
 
     VERSION = 1
     MINOR_VERSION = 1

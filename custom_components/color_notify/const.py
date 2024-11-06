@@ -1,8 +1,8 @@
-"""Constants for the Notify Light-er integration."""
+"""Constants for the ColorNotify integration."""
 
 from typing import Final
 
-DOMAIN: Final = "notify_lighter"
+DOMAIN: Final = "color_notify"
 
 TYPE_POOL: Final = "pool"
 TYPE_LIGHT: Final = "light"

@@ -21,7 +21,7 @@ class HassData:
     @staticmethod
     def get_domain_data(hass: HomeAssistant) -> dict[str, dict]:
         """Return the domain hass_data"""
-        return hass.data[DOMAIN]
+        return hass.data.setdefault(DOMAIN, {})
 
     @callback
     @staticmethod

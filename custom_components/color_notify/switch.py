@@ -27,7 +27,7 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Initialize Notify Light-er config entry."""
+    """Initialize ColorNotify config entry."""
     # Update hass.data with any options
     config = HassData.get_entry_data(hass, config_entry.entry_id)
     if config_entry.options:
@@ -84,14 +84,14 @@ async def forward_pooled_update(hass: HomeAssistant, config_entry: ConfigEntry, 
 
 
 class NotificationSwitchEntity(ToggleEntity, RestoreEntity):
-    """notify_lighter Light."""
+    """ColorNotify Light."""
 
     _attr_should_poll = False
 
     def __init__(
         self, hass: HomeAssistant, unique_id: str, name: str, config_entry: ConfigEntry
     ) -> None:
-        """Initialize notify_lighter light."""
+        """Initialize notification toggleable."""
         super().__init__()
         self._hass = hass
         self._attr_name = name

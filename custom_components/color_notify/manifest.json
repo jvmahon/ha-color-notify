@@ -1,0 +1,11 @@
+{
+  "domain": "color_notify",
+  "name": "Color Notify",
+  "codeowners": ["@cobryan05"],
+  "config_flow": true,
+  "documentation": "https://github.com/cobryan05/ha-color-notify",
+  "issue_tracker": "https://github.com/cobryan05/ha-color-notify/issues",
+  "integration_type": "hub",
+  "iot_class": "calculated",
+  "version": "0.1"
+}

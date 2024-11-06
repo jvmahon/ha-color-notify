@@ -1,4 +1,4 @@
-"""The NotifyLighter integration."""
+"""The ColorNotify integration."""
 
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.LIGHT, Platform.SWITCH]
 
-type NotifyLighterConfigEntry = ConfigEntry[NotifyLighterData]  # noqa: F821
+type ColorNotifyConfigEntry = ConfigEntry[ColorNotifyData]  # noqa: F821
 
 
-class NotifyLighterData:
+class ColorNotifyData:
     pass
 
 
@@ -35,9 +35,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     return True
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, entry: NotifyLighterConfigEntry
-) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: ColorNotifyConfigEntry) -> bool:
     """Set up new entities from a config entry."""
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = dict(entry.data)
@@ -65,7 +63,7 @@ async def handle_config_updated(hass: HomeAssistant, entry: ConfigEntry) -> None
 
 # TODO Update entry annotation
 async def async_unload_entry(
-    hass: HomeAssistant, entry: NotifyLighterConfigEntry
+    hass: HomeAssistant, entry: ColorNotifyConfigEntry
 ) -> bool:
     """Unload a config entry."""
     item_type = entry.data.get(CONF_TYPE, None)
