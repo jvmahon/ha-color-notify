@@ -248,6 +248,10 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
     async def async_added_to_hass(self):
         """Set up before initially adding to HASS."""
         await super().async_added_to_hass()
+
+        # Add the 'OFF' sequence so the list isn't empty
+        self._active_sequences[STATE_OFF] = LIGHT_OFF_SEQUENCE
+
         # Spawn the worker function background task to manage this bulb
         self._task = self._config_entry.async_create_background_task(
             self.hass, self._worker_func(), name=f"{self.name} background task"
@@ -312,7 +316,8 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         if restored_state:
             self._attr_is_on = restored_state.state == STATE_ON
             self.async_schedule_update_ha_state(True)
-            self.hass.async_create_task(self.async_turn_on())
+            if self.is_on:
+                self.hass.async_create_task(self.async_turn_on())
 
     async def async_will_remove_from_hass(self):
         """Clean up before removal from HASS."""
