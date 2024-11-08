@@ -60,6 +60,7 @@ from .const import (
     CONF_RGB_SELECTOR,
     CONF_SUBSCRIPTION,
     DEFAULT_PRIORITY,
+    INIT_STATE_UPDATE_DELAY_SEC,
     MAXIMUM_PRIORITY,
     OFF_RGB,
     TYPE_POOL,
@@ -275,6 +276,41 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         pool_subs: list[str] = hass_data.get(TYPE_POOL, [])
         entity_subs: list[str] = hass_data.get(CONF_ENTITIES, [])
 
+        async def delay_fire_initial_events(_) -> None:
+            """Fire state change notifications for all subscribed events."""
+            nonlocal pool_subs
+            nonlocal entity_subs
+            already_fired: set[str] = set()
+            # Subscribe to the pool by adding _handle_notification_change to pool callbacks list
+            for pool in pool_subs:
+                # Fire state_changed to get initial notification state
+                for notif in HassData.get_all_entities(self.hass, pool):
+                    if notif.entity_id in already_fired:
+                        continue
+                    already_fired.add(notif.entity_id)
+                    self.hass.bus.async_fire(
+                        "state_changed",
+                        {
+                            ATTR_ENTITY_ID: notif.entity_id,
+                            "new_state": self.hass.states.get(notif.entity_id),
+                            "old_state": None,
+                        },
+                    )
+
+            for entity in entity_subs:
+                # Fire state_changed to get initial notification state
+                if entity in already_fired:
+                    continue
+                already_fired.add(entity)
+                self.hass.bus.async_fire(
+                    "state_changed",
+                    {
+                        ATTR_ENTITY_ID: entity,
+                        "new_state": self.hass.states.get(entity),
+                        "old_state": None,
+                    },
+                )
+
         # Subscribe to the pool by adding _handle_notification_change to pool callbacks list
         for pool in pool_subs:
             pool_callbacks: set[Callable] = HassData.get_runtime_data(pool).setdefault(
@@ -282,35 +318,17 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             )
             pool_callbacks.add(self._handle_notification_change)
 
-            # Fire state_changed to get initial notification state
-            for notif in HassData.get_all_entities(self.hass, pool):
-                self.hass.bus.async_fire(
-                    "state_changed",
-                    {
-                        ATTR_ENTITY_ID: notif.entity_id,
-                        "new_state": self.hass.states.get(notif.entity_id),
-                        "old_state": None,
-                    },
-                )
-
         for entity in entity_subs:
             self._config_entry.async_on_unload(
                 async_track_state_change_event(
                     self.hass, entity, self._handle_notification_change
                 )
             )
-            # Fire state_changed to get initial notification state
-            self.hass.bus.async_fire(
-                "state_changed",
-                {
-                    ATTR_ENTITY_ID: entity,
-                    "new_state": self.hass.states.get(entity),
-                    "old_state": None,
-                },
-            )
 
-        # Add the 'OFF' sequence so the list isn't empty
-        self._active_sequences[STATE_OFF] = LIGHT_OFF_SEQUENCE
+        # Delay fire the initial events in case the light entity was created before the subscribed state entities
+        async_call_later(
+            self.hass, INIT_STATE_UPDATE_DELAY_SEC, delay_fire_initial_events
+        )
 
         restored_state = await self.async_get_last_state()
         if restored_state:
