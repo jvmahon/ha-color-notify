@@ -204,7 +204,7 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
         schema = self.add_suggested_values_to_schema(
             ADD_POOL_SCHEMA, suggested_values=entry.data
         )
-        return self.async_show_form(step_id="reconfigure", data_schema=schema)
+        return self.async_show_form(step_id="reconfigure_pool", data_schema=schema)
 
     async def async_step_reconfigure_light(
         self, user_input: dict[str, Any] | None = None
@@ -216,15 +216,18 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             return self.async_update_reload_and_abort(
                 entry,
-                title=f"[Light] {user_input[CONF_NAME]}",
                 data=user_input | {CONF_TYPE: TYPE_LIGHT},
                 reason="Changes saved",
             )
 
-        schema = self.add_suggested_values_to_schema(
-            ADD_LIGHT_SCHEMA, suggested_values=entry.data
+        # Remove 'name' from schema. Use 'rename' for that.
+        schema = vol.Schema(
+            {k: v for k, v in ADD_LIGHT_SCHEMA.schema.items() if k != CONF_NAME}
         )
-        return self.async_show_form(step_id="reconfigure", data_schema=schema)
+        schema = self.add_suggested_values_to_schema(
+            schema, suggested_values=entry.data
+        )
+        return self.async_show_form(step_id="reconfigure_light", data_schema=schema)
 
     async def async_step_new_pool(
         self, user_input: dict[str, Any] | None = None

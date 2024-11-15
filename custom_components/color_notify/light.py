@@ -230,7 +230,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         super().__init__()
         self._wrapped_entity_id: str = wrapped_entity_id
         self._wrapped_init_done: bool = False
-        self._attr_name: str = name
+        self._attr_name: str = config_entry.title
         self._attr_unique_id: str = unique_id
         self._config_entry: ConfigEntry = config_entry
 
