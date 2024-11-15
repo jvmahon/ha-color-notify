@@ -179,32 +179,10 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
 
         if entry.data[CONF_TYPE] == TYPE_LIGHT:
             return await self.async_step_reconfigure_light(user_input)
-        elif entry.data[CONF_TYPE] == TYPE_POOL:
-            return await self.async_step_reconfigure_pool(user_input)
-        else:
-            return self.async_abort(
-                reason=f"Reconfigure not supported for {str(entry.data[CONF_TYPE])}"
-            )
 
-    async def async_step_reconfigure_pool(
-        self, user_input: dict[str, Any] | None = None
-    ):
-        """Handle reconfiguring the light entity."""
-        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
-        assert entry
-
-        if user_input is not None:
-            return self.async_update_reload_and_abort(
-                entry,
-                title=f"[Pool] {user_input[CONF_NAME]}",
-                data=user_input | {CONF_TYPE: TYPE_POOL},
-                reason="Changes saved",
-            )
-
-        schema = self.add_suggested_values_to_schema(
-            ADD_POOL_SCHEMA, suggested_values=entry.data
+        return self.async_abort(
+            reason=f"Reconfigure not supported for {str(entry.data[CONF_TYPE])}"
         )
-        return self.async_show_form(step_id="reconfigure_pool", data_schema=schema)
 
     async def async_step_reconfigure_light(
         self, user_input: dict[str, Any] | None = None
