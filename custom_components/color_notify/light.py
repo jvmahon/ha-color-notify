@@ -26,7 +26,6 @@ from homeassistant.const import (
     CONF_DELAY_TIME,
     CONF_ENTITIES,
     CONF_ENTITY_ID,
-    CONF_UNIQUE_ID,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
     STATE_OFF,
@@ -82,18 +81,11 @@ async def async_setup_entry(
     wrapped_entity_id = er.async_validate_entity_id(
         registry, config_entry.data[CONF_ENTITY_ID]
     )
-    name = config_entry.title
     unique_id = config_entry.entry_id
-    config = HassData.get_entry_data(hass, config_entry.entry_id)
-    if config_entry.data:
-        config.update(config_entry.data)
-    if config_entry.options:
-        config.update(config_entry.options)
-    config.update({CONF_UNIQUE_ID: unique_id})
-
-    async_add_entities(
-        [NotificationLightEntity(unique_id, name, wrapped_entity_id, config_entry)]
-    )
+    runtime_data = HassData.get_config_entry_runtime_data(config_entry.entry_id)
+    new_entity = NotificationLightEntity(unique_id, wrapped_entity_id, config_entry)
+    runtime_data[CONF_ENTITIES] = new_entity
+    async_add_entities([new_entity])
 
 
 @dataclass
@@ -222,7 +214,6 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
     def __init__(
         self,
         unique_id: str,
-        name: str,
         wrapped_entity_id: str,
         config_entry: ConfigEntry,
     ) -> None:
@@ -276,11 +267,9 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             )
         )
 
-        hass_data: dict[str, dict] = HassData.get_ntfctn_entries(
-            self.hass, self._config_entry.entry_id
-        )
-        pool_subs: list[str] = hass_data.get(TYPE_POOL, [])
-        entity_subs: list[str] = hass_data.get(CONF_ENTITIES, [])
+        subs = self._config_entry.options.get(CONF_SUBSCRIPTION, {})
+        pool_subs: list[str] = subs.get(TYPE_POOL, [])
+        entity_subs: list[str] = subs.get(CONF_ENTITIES, [])
 
         async def delay_fire_initial_events(_) -> None:
             """Fire state change notifications for all subscribed events."""
@@ -290,7 +279,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             # Subscribe to the pool by adding _handle_notification_change to pool callbacks list
             for pool in pool_subs:
                 # Fire state_changed to get initial notification state
-                for notif in HassData.get_all_entities(self.hass, pool):
+                for notif in HassData.get_all_entities(self.hass, pool).values():
                     if notif.entity_id in already_fired:
                         continue
                     already_fired.add(notif.entity_id)
@@ -319,9 +308,9 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
 
         # Subscribe to the pool by adding _handle_notification_change to pool callbacks list
         for pool in pool_subs:
-            pool_callbacks: set[Callable] = HassData.get_runtime_data(pool).setdefault(
-                CONF_SUBSCRIPTION, set()
-            )
+            pool_callbacks: set[Callable] = HassData.get_config_entry_runtime_data(
+                pool
+            ).setdefault(CONF_SUBSCRIPTION, set())
             pool_callbacks.add(self._handle_notification_change)
 
         for entity in entity_subs:
@@ -349,14 +338,12 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             self._task.cancel()
 
         # Unsubscribe any 'pool' subscriptions
-        hass_data: dict[str, dict] = HassData.get_ntfctn_entries(
-            self.hass, self._config_entry.entry_id
-        )
-        pool_subs: list[str] = hass_data.get(TYPE_POOL, [])
-        for pool in pool_subs:
-            pool_callbacks: set[Callable] = HassData.get_runtime_data(pool).setdefault(
-                CONF_SUBSCRIPTION, set()
-            )
+
+        pool_subs: list[str] = self._config_entry.options.get(TYPE_POOL, [])
+        for pool_entry_id in pool_subs:
+            pool_callbacks: set[Callable] = HassData.get_config_entry_runtime_data(
+                pool_entry_id
+            ).setdefault(CONF_SUBSCRIPTION, set())
             if self._handle_notification_change in pool_callbacks:
                 pool_callbacks.remove(self._handle_notification_change)
 
@@ -442,7 +429,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
     async def _work_loop(self):
         """Worker loop to manage light."""
         # Wait until the list is not empty
-        entry_data = HassData.get_entry_data(self.hass, self._config_entry.entry_id)
+        entry_data = self._config_entry.data
         q_task: asyncio.Task | None = None
         cycle_canceler: Callable | None = None
         cycle_delay_time = entry_data.get(CONF_DELAY_TIME)
@@ -490,7 +477,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             )
             if q_task in done:
                 item: _QueueEntry = await q_task
-
+                _LOGGER.info("Got queue item: %s", item)
                 if item.action == CONF_DELETE:
                     if item.notify_id in self._active_sequences:
                         anim = self._active_sequences.pop(item.notify_id)
@@ -499,6 +486,8 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                             self._visible_sequences.pop(item.notify_id)
 
                 if item.action == CONF_ADD and item.sequence:
+                    if item.notify_id not in self._active_sequences:
+                        _LOGGER.warning("%s already in active list", item.notify_id)
 
                     async def restore_priority(
                         _,
@@ -599,8 +588,13 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         self, event: Event[EventStateChangedData]
     ) -> None:
         """Handle a subscribed notification changing state."""
-        is_on = event.data["new_state"].state == STATE_ON
         notify_id = event.data[CONF_ENTITY_ID]
+        if event.data.get("new_state") is None:
+            _LOGGER.warning("%s no new state, renamed?", str(self))
+            await self._remove_sequence(notify_id)
+            return
+
+        is_on = event.data["new_state"].state == STATE_ON
         if is_on:
             sequence = self._create_sequence_from_attr(
                 event.data["new_state"].attributes, notify_id

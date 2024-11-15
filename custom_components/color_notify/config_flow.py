@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import logging
-from typing import Any
+from typing import Any, Mapping
 from uuid import uuid4
 
 import voluptuous as vol
@@ -36,10 +36,12 @@ from .const import (
     CONF_DYNAMIC_PRIORITY,
     CONF_EXPIRE_ENABLED,
     CONF_NOTIFY_PATTERN,
+    CONF_NTFCTN_ENTRIES,
     CONF_PEEK_ENABLED,
     CONF_PEEK_TIME,
     CONF_PRIORITY,
     CONF_RGB_SELECTOR,
+    CONF_SUBSCRIPTION,
     DEFAULT_PRIORITY,
     DOMAIN,
     MAXIMUM_PRIORITY,
@@ -252,50 +254,17 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
             return PoolOptionsFlowHandler(config_entry)
         raise NotImplementedError
 
-    @callback
-    def _get_entry_data(self) -> dict[str, dict]:
-        return HassData.get_entry_data(self.hass, self.context.get("entry_id", 0))
-
-    @callback
-    def _get_ntfctn_entries(self) -> dict[str, dict]:
-        return HassData.get_ntfctn_entries(self.hass, self.context.get("entry_id", 0))
-
-    @callback
-    def _get_entries_by_uuid(self) -> dict[str, dict]:
-        return HassData.get_entries_by_uuid(self.hass, self.context.get("entry_id", 0))
-
-    @callback
-    def _get_all_entities(self) -> list[er.RegistryEntry]:
-        return HassData.get_all_entities(self.hass, self.context.get("entry_id", 0))
-
 
 class HassDataOptionsFlow(OptionsFlow):
     def __init__(self, config_entry: ConfigEntry):
         self._config_entry = config_entry
 
-    @callback
-    def _get_entry_data(self) -> dict[str, dict]:
-        return HassData.get_entry_data(self.hass, self._config_entry.entry_id)
-
-    @callback
-    def _get_ntfctn_entries(self) -> dict[str, dict]:
-        return HassData.get_ntfctn_entries(self.hass, self._config_entry.entry_id)
-
-    @callback
-    def _get_entries_by_uuid(self) -> dict[str, dict]:
-        return HassData.get_entries_by_uuid(self.hass, self._config_entry.entry_id)
-
-    @callback
-    def _get_all_entities(self) -> list[er.RegistryEntry]:
-        return HassData.get_all_entities(self.hass, self._config_entry.entry_id)
-
     async def _async_trigger_conf_update(
-        self, title: str | None = None, data: dict | None = None
+        self, title: str | None = None, data: Mapping | None = None
     ) -> ConfigFlowResult:
-        # Trigger a Config Update by setting a unique force_update_cnt
-        force_update_cnt: int = self._get_entry_data().get(CONF_FORCE_UPDATE, 0) + 1
+        # Trigger a Config Update by setting a unique CONF_FORCE_UPDATE
         return self.async_create_entry(
-            title=title, data=data | {CONF_FORCE_UPDATE: force_update_cnt}
+            title=title, data=data | {CONF_FORCE_UPDATE: uuid4().hex}
         )
 
 
@@ -371,11 +340,7 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
             "],5",
             '{"rgb": [255,255,255]}',
         ]
-        defaults = (
-            ADD_LIGHT_DEFAULTS
-            | self._get_entry_data()
-            | {CONF_NOTIFY_PATTERN: sample_pattern}
-        )
+        defaults = ADD_LIGHT_DEFAULTS | {CONF_NOTIFY_PATTERN: sample_pattern}
         schema = self.add_suggested_values_to_schema(
             ADD_NOTIFY_SCHEMA, suggested_values=defaults
         )
@@ -389,12 +354,10 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
         if user_input is not None:
             return await self.async_step_modify_notification(user_input)
 
-        ntfctn_unique_ids = HassData.get_config_notification_list(
-            self.hass, self._config_entry.entry_id
-        )
-        options_schema = vol.Schema(
-            {vol.Required(CONF_UNIQUE_ID): vol.In(ntfctn_unique_ids)}
-        )
+        # Generate list of notifications from pool to select from
+        select_list = self._get_notifications()
+
+        options_schema = vol.Schema({vol.Required(CONF_UNIQUE_ID): vol.In(select_list)})
 
         return self.async_show_form(
             step_id="modify_notification_select", data_schema=options_schema
@@ -405,8 +368,9 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
     ) -> ConfigFlowResult:
         """Launch the Modify Notification form."""
         item_data: dict | None = None
+        ntfctn_entries = self._config_entry.options.get(CONF_NTFCTN_ENTRIES, {})
         if uuid := user_input.get(CONF_UNIQUE_ID):
-            item_data = self._get_entries_by_uuid().get(uuid)
+            item_data = ntfctn_entries.get(uuid)
 
         if item_data is None:
             return self.async_abort(reason="Can't locate notification to modify")
@@ -459,17 +423,16 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
         """Launch the Delete Notification form."""
         if user_input is not None:
             # Set 'to delete' entries and trigger reload
-            entry_data: dict = dict(self._get_entry_data())
-            entry_data[CONF_DELETE] = user_input.get(CONF_DELETE, [])
-            return await self._async_trigger_conf_update(data=entry_data)
+            delete_entry = {CONF_DELETE: user_input.get(CONF_DELETE, [])}
+            return await self._async_trigger_conf_update(
+                data=self._config_entry.options | delete_entry
+            )
 
-        ntfctn_unique_ids = HassData.get_config_notification_list(
-            self.hass, self._config_entry.entry_id
-        )
-
+        # Generate list of notifications from pool to select from
+        select_list = self._get_notifications()
         options_schema = vol.Schema(
             {
-                vol.Optional(CONF_DELETE): cv.multi_select(ntfctn_unique_ids),
+                vol.Optional(CONF_DELETE): cv.multi_select(select_list),
             }
         )
         return self.async_show_form(
@@ -480,9 +443,6 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Finalize adding the notification."""
-        # get hass_data entries
-        ntfctn_entries = self._get_ntfctn_entries()
-
         # ensure defaults are set
         user_input = ADD_NOTIFY_DEFAULTS | user_input
         uuid = user_input.get(CONF_UNIQUE_ID)
@@ -491,9 +451,29 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
             user_input[CONF_UNIQUE_ID] = uuid
 
         # Add to the entry to hass_data
-        ntfctn_entries.setdefault(CONF_UNIQUE_ID, {})[uuid] = user_input
+        ntfctn_entries = self._config_entry.options.get(CONF_NTFCTN_ENTRIES, {})
+        ntfctn_entries[uuid] = user_input
 
-        return await self._async_trigger_conf_update(data=self._get_entry_data())
+        return await self._async_trigger_conf_update(
+            data=self._config_entry.options | {CONF_NTFCTN_ENTRIES: ntfctn_entries}
+        )
+
+    @callback
+    def _get_notifications(self) -> dict[str, str]:
+        # Generate list of notifications from pool to select from, sorted by priority
+        ntfctns = self._config_entry.options.get(CONF_NTFCTN_ENTRIES, {})
+        ntfctns = sorted(
+            ntfctns.items(), key=lambda x: x[1].get(CONF_PRIORITY), reverse=True
+        )
+
+        entities = HassData.get_all_entities(self.hass, self._config_entry.entry_id)
+        select_list: dict[str, str] = {}
+        for uid, ntfctn in ntfctns:
+            entity = entities[uid]
+            select_list[uid] = (
+                f"{ntfctn.get(CONF_NAME)} [{entity.entity_id}] Prio: {ntfctn.get(CONF_PRIORITY):.0f}"
+            )
+        return select_list
 
 
 class LightOptionsFlowHandler(HassDataOptionsFlow):
@@ -525,8 +505,7 @@ class LightOptionsFlowHandler(HassDataOptionsFlow):
 
         pools = HassData.get_all_pools(self.hass)
         pool_items = [
-            {"value": pool[CONF_UNIQUE_ID], "label": f"{pool[CONF_NAME]}"}
-            for pool in pools
+            {"value": uid, "label": f"{pool[CONF_NAME]}"} for uid, pool in pools
         ]
         # TODO: Set up pool subscriptions
         # TODO: Update light when pool subscriptions change
@@ -537,7 +516,8 @@ class LightOptionsFlowHandler(HassDataOptionsFlow):
             selector.SelectSelectorConfig(multiple=True, options=pool_items)
         )
         schema = vol.Schema(schema)
-        defaults: dict[str, dict] = SUBSCRIPTION_DEFAULTS | self._get_ntfctn_entries()
+        cur_subs: dict = self._config_entry.options.get(CONF_SUBSCRIPTION, {})
+        defaults: dict[str, dict] = SUBSCRIPTION_DEFAULTS | cur_subs
         schema = self.add_suggested_values_to_schema(schema, suggested_values=defaults)
 
         return self.async_show_form(step_id="subscriptions", data_schema=schema)
@@ -546,6 +526,8 @@ class LightOptionsFlowHandler(HassDataOptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Finalize adding the notification."""
-        # Add to the entry to hass_data ensuring defaults are set
-        self._get_ntfctn_entries().update(SUBSCRIPTION_DEFAULTS | user_input)
-        return await self._async_trigger_conf_update(data=self._get_entry_data())
+        # Add to the entry to sub ensuring defaults are set
+        # self._get_ntfctn_entries().update(SUBSCRIPTION_DEFAULTS | user_input)
+        return await self._async_trigger_conf_update(
+            data={CONF_SUBSCRIPTION: user_input}
+        )

@@ -1,15 +1,13 @@
-from homeassistant.const import CONF_ENTITY_ID, CONF_NAME, CONF_TYPE, CONF_UNIQUE_ID
+import logging
+from typing import Any
+
+from homeassistant.const import CONF_ENTITY_ID, CONF_TYPE, CONF_UNIQUE_ID
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 
-from ..const import (
-    CONF_NTFCTN_ENTRIES,
-    CONF_PRIORITY,
-    DEFAULT_PRIORITY,
-    DOMAIN,
-    TYPE_LIGHT,
-    TYPE_POOL,
-)
+from ..const import DOMAIN, TYPE_LIGHT, TYPE_POOL
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class HassData:
@@ -20,56 +18,38 @@ class HassData:
     @callback
     @staticmethod
     def get_domain_data(hass: HomeAssistant) -> dict[str, dict]:
-        """Return the domain hass_data"""
+        """Return the domain hass_data."""
         return hass.data.setdefault(DOMAIN, {})
 
     @callback
     @staticmethod
-    def get_entry_data(hass: HomeAssistant, config_entry_id: str) -> dict[str, dict]:
-        """Return hass_data entries for a ConfigEntry."""
-        return HassData.get_domain_data(hass).setdefault(config_entry_id, {})
-
-    @callback
-    @staticmethod
-    def get_runtime_data(config_entry_id: str) -> dict[str, dict]:
+    def get_config_entry_runtime_data(config_entry_id: str) -> dict[str, Any]:
         """Return non-persisted runtime data for a ConfigEntry."""
         return HassData._runtime_data.setdefault(config_entry_id, {})
 
     @callback
     @staticmethod
-    def get_ntfctn_entries(
-        hass: HomeAssistant, config_entry_id: str
-    ) -> dict[str, dict]:
-        """Return notification entries."""
-        return HassData.get_entry_data(hass, config_entry_id).setdefault(
-            CONF_NTFCTN_ENTRIES, {}
-        )
-
-    @callback
-    @staticmethod
-    def get_entries_by_uuid(
-        hass: HomeAssistant, config_entry_id: str
-    ) -> dict[str, dict]:
-        """Return notification entries by uuid."""
-        return HassData.get_ntfctn_entries(hass, config_entry_id).setdefault(
-            CONF_UNIQUE_ID, {}
-        )
+    def clear_config_entry_runtime_data(config_entry_id: str) -> None:
+        """Clear runtime data for a ConfigEntry."""
+        if config_entry_id in HassData._runtime_data:
+            HassData._runtime_data.pop(config_entry_id)
 
     @callback
     @staticmethod
     def get_all_entities(
         hass: HomeAssistant, config_entry_id: str
-    ) -> list[er.RegistryEntry]:
+    ) -> dict[str, er.RegistryEntry]:
         """Return all entities from a given config_entry."""
         entity_registry = er.async_get(hass)
-        return er.async_entries_for_config_entry(entity_registry, config_entry_id)
+        entities = er.async_entries_for_config_entry(entity_registry, config_entry_id)
+        return {entity.unique_id: entity for entity in entities}
 
     @callback
     @staticmethod
-    def get_all_pools(hass: HomeAssistant) -> list:
+    def get_all_pools(hass: HomeAssistant) -> list[tuple[str, dict]]:
         """Return all notification pools."""
         return [
-            entry
+            (uid, entry)
             for uid, entry in HassData.get_domain_data(hass).items()
             if entry.get(CONF_TYPE) == TYPE_POOL
         ]
@@ -104,54 +84,15 @@ class HassData:
 
     @callback
     @staticmethod
-    def get_config_notification_list(
-        hass: HomeAssistant, config_entry_id: str
-    ) -> dict[str, str]:
-        """Get list of notifications for display in config list."""
-        items_by_uuid = HassData.get_entries_by_uuid(hass, config_entry_id)
-        entities = HassData.get_config_notifications(hass, config_entry_id)
-        # Set up multi-select
-        ntfctn_unique_ids = {
-            e.unique_id: f"{items_by_uuid.get(e.unique_id, {}).get(CONF_NAME)} [{e.entity_id}] Prio: {items_by_uuid.get(e.unique_id, {}).get(CONF_PRIORITY):.0f}"
-            for e in entities
-        }
-        return ntfctn_unique_ids
-
-    @callback
-    @staticmethod
-    def get_config_notifications(
-        hass: HomeAssistant, config_entry_id: str
-    ) -> list[er.RegistryEntry]:
-        """Get list of notifications for display in config list."""
-        entities = HassData.get_all_entities(hass, config_entry_id)
-        items_by_uuid = HassData.get_entries_by_uuid(hass, config_entry_id)
-        entities.sort(
-            key=lambda x: -items_by_uuid.get(x.unique_id, {}).get(
-                CONF_PRIORITY, DEFAULT_PRIORITY
-            )
-        )
-        return entities
-
-    @callback
-    @staticmethod
     def remove_entity(
         hass: HomeAssistant, config_entry_id: str, unique_id: str
-    ) -> bool:
+    ) -> None:
         """Remove an entity by unique id."""
-        ret: bool = False
-        entity_info = HassData.get_entries_by_uuid(hass, config_entry_id).get(
-            unique_id, {}
-        )
-        if entity_info:
-            HassData.get_entries_by_uuid(hass, config_entry_id).pop(
-                entity_info[CONF_UNIQUE_ID]
-            )
-            all_entities = HassData.get_all_entities(hass, config_entry_id)
-            entity = next(
-                (item for item in all_entities if item.unique_id == unique_id), None
-            )
-            if entity:
-                entity_registry = er.async_get(hass)
-                entity_registry.async_remove(entity.entity_id)
-                ret = True
-        return ret
+        entities = HassData.get_all_entities(hass, config_entry_id)
+        entity_to_delete = entities.get(unique_id)
+        if entity_to_delete is not None:
+            HassData.clear_config_entry_runtime_data(config_entry_id)
+            entity_registry = er.async_get(hass)
+            entity_registry.async_remove(entity_to_delete.entity_id)
+        else:
+            _LOGGER.warning("Couldn't find entity with uid %s for removal", unique_id)

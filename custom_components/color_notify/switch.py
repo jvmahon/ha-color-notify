@@ -3,10 +3,17 @@
 from collections.abc import Callable
 from datetime import timedelta
 from functools import partial
+import logging
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_DELAY_TIME, CONF_NAME, CONF_UNIQUE_ID, STATE_ON
+from homeassistant.const import (
+    CONF_DELAY_TIME,
+    CONF_ENTITIES,
+    CONF_FORCE_UPDATE,
+    CONF_NAME,
+    STATE_ON,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import ToggleEntity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -14,12 +21,15 @@ from homeassistant.helpers.event import async_call_later, async_track_state_chan
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
+    CONF_CLEANUP,
     CONF_DELETE,
     CONF_EXPIRE_ENABLED,
     CONF_NTFCTN_ENTRIES,
     CONF_SUBSCRIPTION,
 )
 from .utils.hass_data import HassData
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -28,56 +38,80 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Initialize ColorNotify config entry."""
-    # Update hass.data with any options
-    config = HassData.get_entry_data(hass, config_entry.entry_id)
-    if config_entry.options:
-        config.update(config_entry.options)
-    config.update({CONF_UNIQUE_ID: config_entry.entry_id})
-    existing_entities = HassData.get_all_entities(hass, config_entry)
-    existing_unique_ids = {
-        entry.unique_id.lower(): entry for entry in existing_entities
-    }
+    runtime_data: dict[str, Any] = HassData.get_config_entry_runtime_data(
+        config_entry.entry_id
+    )
+    runtime_entities = runtime_data.setdefault(CONF_ENTITIES, {})
 
-    entries: dict[str, dict] = config.get(CONF_NTFCTN_ENTRIES, {})
+    entries: dict[str, dict] = config_entry.options.get(CONF_NTFCTN_ENTRIES, {})
     # Filter to only add new entries
     new_entities: dict[str, dict] = {
         uid: data
-        for uid, data in entries.get(CONF_UNIQUE_ID, {}).items()
-        if uid.lower() not in existing_unique_ids
+        for uid, data in entries.items()
+        if uid.lower() not in runtime_entities
     }
 
     entities_to_delete: list[str] = config_entry.options.get(CONF_DELETE, [])
     if entities_to_delete:
         new_options = dict(config_entry.options)
         new_options.pop(CONF_DELETE)
-        hass.config_entries.async_update_entry(config_entry, options=new_options)
+        ntfctns = new_options.get(CONF_NTFCTN_ENTRIES, {})
         for entity_uid in entities_to_delete:
             HassData.remove_entity(hass, config_entry.entry_id, entity_uid)
+            if entity_uid in ntfctns:
+                ntfctns.pop(entity_uid)
+            else:
+                _LOGGER.warning(
+                    "Entity uid %s missing in notifications list", entity_uid
+                )
+        hass.config_entries.async_update_entry(config_entry, options=new_options)
 
     entities_to_add = [
-        NotificationSwitchEntity(
-            hass, unique_id=uid, name=data[CONF_NAME], config_entry=config_entry
+        (
+            uid,
+            NotificationSwitchEntity(
+                hass, unique_id=uid, name=data[CONF_NAME], config_entry=config_entry
+            ),
         )
         for uid, data in new_entities.items()
         if uid not in entities_to_delete
     ]
 
     if entities_to_add:
-        async_add_entities(entities_to_add)
-        #  Subscribe pool to each notification
-        for entity in entities_to_add:
-            config_entry.async_on_unload(
-                async_track_state_change_event(
-                    hass,
-                    entity.entity_id,
-                    partial(forward_pooled_update, hass, config_entry),
-                )
+        async_add_entities([entity for uid, entity in entities_to_add])
+
+        # Track change subscriptions in runtime data
+        runtime_subs = runtime_data.setdefault(CONF_CLEANUP, {})
+        for uid, entity in entities_to_add:
+            runtime_entities[uid] = entity
+            runtime_subs[entity.entity_id] = async_track_state_change_event(
+                hass,
+                entity.entity_id,
+                partial(forward_pooled_update, hass, config_entry),
             )
+
+    if CONF_FORCE_UPDATE in config_entry.options:
+        new_options = dict(config_entry.options)
+        new_options.pop(CONF_FORCE_UPDATE)
+        hass.config_entries.async_update_entry(config_entry, options=new_options)
+
+
+async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry):
+    """Unload a config entry."""
+    runtime_data: dict[str, Any] = HassData.get_config_entry_runtime_data(
+        config_entry.entry_id
+    )
+    for unsub in runtime_data.get(CONF_CLEANUP, {}).values():
+        if callable(unsub):
+            unsub()
+    HassData.clear_config_entry_runtime_data(config_entry.entry_id)
 
 
 async def forward_pooled_update(hass: HomeAssistant, config_entry: ConfigEntry, *args):
-    """Forward notifications from this pool along to any pool subscribers"""
-    subs = HassData.get_runtime_data(config_entry.entry_id).get(CONF_SUBSCRIPTION, [])
+    """Forward notifications from this pool along to any pool subscribers."""
+    subs = HassData.get_config_entry_runtime_data(config_entry.entry_id).get(
+        CONF_SUBSCRIPTION, []
+    )
     for sub in subs:
         if callable(sub):
             await sub(*args)
@@ -99,11 +133,9 @@ class NotificationSwitchEntity(ToggleEntity, RestoreEntity):
         self._attr_is_on = False
         self._config_entry: ConfigEntry = config_entry
         self._timer_callback_canceller: Callable | None = None
-        hass_data: dict[str, dict] = HassData.get_ntfctn_entries(
-            hass, config_entry.entry_id
-        )
-        self._attr_extra_state_attributes: dict[str, Any] = hass_data.get(
-            CONF_UNIQUE_ID, {}
+
+        self._attr_extra_state_attributes: dict[str, Any] = config_entry.options.get(
+            CONF_NTFCTN_ENTRIES, {}
         ).get(unique_id, {})
 
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -122,6 +154,7 @@ class NotificationSwitchEntity(ToggleEntity, RestoreEntity):
         await super().async_added_to_hass()
         state = await self.async_get_last_state()
         if state is None:
+            _LOGGER.warning("%s no previous state?", str(self))
             return
         self._attr_is_on = state.state == STATE_ON
         if self.is_on:

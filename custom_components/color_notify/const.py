@@ -9,6 +9,7 @@ TYPE_LIGHT: Final = "light"
 
 CONF_RGB_SELECTOR: Final = "color_picker"
 CONF_SUBSCRIPTION: Final = "subscription"
+CONF_CLEANUP: Final = "cleanup"
 CONF_NOTIFY_PATTERN: Final = "pattern"
 CONF_EXPIRE_ENABLED: Final = "expire_enabled"
 CONF_NTFCTN_ENTRIES: Final = "ntfctn_entries"
