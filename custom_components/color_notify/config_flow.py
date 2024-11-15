@@ -533,44 +533,7 @@ class LightOptionsFlowHandler(HassDataOptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Launch the options flow."""
-        return self.async_show_menu(
-            step_id="light_init", menu_options=["light_options", "subscriptions"]
-        )
-
-    async def async_step_light_options(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Launch the options flow."""
-        if user_input is not None:
-            self._get_entry_data().update(ADD_LIGHT_DEFAULTS | user_input)
-            return await self._async_trigger_conf_update(data=self._get_entry_data())
-
-        # Don't list lights created by this integration or in use
-        exclude_entities = HassData.get_domain_light_entity_ids(self.hass)
-        exclude_entities.extend(HassData.get_wrapped_light_entity_ids(self.hass))
-        # Exclude the current light's wrapped entity
-        entry_id: str = self.handler
-        keep_entity_ids = [
-            x.get(CONF_ENTITY_ID)
-            for x in HassData.get_domain_lights(self.hass)
-            if x.get(CONF_UNIQUE_ID) == entry_id
-        ]
-        for entity_id in keep_entity_ids:
-            if entity_id in exclude_entities:
-                exclude_entities.remove(entity_id)
-
-        # Set up multi-select
-        schema = {k: copy.copy(v) for k, v in ADD_LIGHT_SCHEMA.schema.items()}
-        schema[CONF_ENTITY_ID] = selector.EntitySelector(
-            selector.EntitySelectorConfig(
-                domain=LIGHT_DOMAIN, exclude_entities=exclude_entities
-            )
-        )
-        schema = vol.Schema(schema)
-        defaults: dict[str, dict] = ADD_LIGHT_DEFAULTS | self._get_entry_data()
-        schema = self.add_suggested_values_to_schema(schema, suggested_values=defaults)
-
-        return self.async_show_form(step_id="light_options", data_schema=schema)
+        return await self.async_step_subscriptions(user_input)
 
     async def async_step_subscriptions(
         self, user_input: dict[str, Any] | None = None

@@ -85,6 +85,8 @@ async def async_setup_entry(
     name = config_entry.title
     unique_id = config_entry.entry_id
     config = HassData.get_entry_data(hass, config_entry.entry_id)
+    if config_entry.data:
+        config.update(config_entry.data)
     if config_entry.options:
         config.update(config_entry.options)
     config.update({CONF_UNIQUE_ID: unique_id})
@@ -113,7 +115,11 @@ class _NotificationSequence:
         self._clear_delay: float | None = clear_delay
         self._task: asyncio.Task | None = None
         self._stop_event: asyncio.Event | None = None
-        self._color: ColorInfo = ColorInfo(OFF_RGB, 0)
+        self._color: ColorInfo = (
+            self._sequence.color
+            if self._sequence.color is not None
+            else ColorInfo(OFF_RGB, 0)
+        )
         self._peek_enabled: bool = peek_enabled
         self._step_finished: asyncio.Event = asyncio.Event()
         self._step_finished.set()
@@ -242,9 +248,9 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             CONF_PRIORITY, DEFAULT_PRIORITY
         )
         self._last_on_rgb: tuple = tuple(
-            config_entry.options.get(CONF_RGB_SELECTOR, WARM_WHITE_RGB)
+            config_entry.data.get(CONF_RGB_SELECTOR, WARM_WHITE_RGB)
         )
-        self._last_brightness: int = 100
+        self._last_brightness: int = 255
 
     async def async_added_to_hass(self):
         """Set up before initially adding to HASS."""
@@ -492,11 +498,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                             await anim.stop()
                             self._visible_sequences.pop(item.notify_id)
 
-                if (
-                    item.action == CONF_ADD
-                    and item.sequence
-                    and item.notify_id not in self._active_sequences
-                ):
+                if item.action == CONF_ADD and item.sequence:
 
                     async def restore_priority(
                         _,
