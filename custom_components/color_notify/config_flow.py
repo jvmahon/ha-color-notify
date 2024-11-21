@@ -292,6 +292,7 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
             menu_options=[
                 "add_notification",
                 "add_notification_sample",
+                "add_notification_copy",
                 "modify_notification_select",
                 "delete_notification",
             ],
@@ -347,6 +348,38 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
         )
 
         return self.async_show_form(step_id="add_notification", data_schema=schema)
+
+    async def async_step_add_notification_copy(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Launch the Copy Notification Selection form."""
+        if user_input is not None:
+            entities = HassData.get_all_entities(self.hass, self._config_entry.entry_id)
+            entity_to_copy = entities.get(user_input[CONF_UNIQUE_ID])
+            state = (
+                self.hass.states.get(entity_to_copy.entity_id)
+                if entity_to_copy is not None
+                else None
+            )
+            if state is None:
+                return self.async_abort(reason="Can't locate notification to copy")
+            defaults = (
+                ADD_NOTIFY_DEFAULTS
+                | state.attributes
+                | {CONF_NAME: state.attributes[CONF_NAME] + " (copy)"}
+            )
+            schema = self.add_suggested_values_to_schema(
+                ADD_NOTIFY_SCHEMA, suggested_values=defaults
+            )
+            return self.async_show_form(step_id="add_notification", data_schema=schema)
+
+        # Generate list of notifications from pool to select from
+        select_list = self._get_notifications()
+        options_schema = vol.Schema({vol.Required(CONF_UNIQUE_ID): vol.In(select_list)})
+
+        return self.async_show_form(
+            step_id="add_notification_copy", data_schema=options_schema
+        )
 
     async def async_step_modify_notification_select(
         self, user_input: dict[str, Any] | None = None
