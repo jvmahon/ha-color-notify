@@ -297,11 +297,17 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                 if entity in already_fired:
                     continue
                 already_fired.add(entity)
+                new_state = self.hass.states.get(entity)
+                if new_state is None:
+                    _LOGGER.warning(
+                        "%s is missing notification %s", self.entity_id, entity
+                    )
+                    continue
                 self.hass.bus.async_fire(
                     "state_changed",
                     {
                         ATTR_ENTITY_ID: entity,
-                        "new_state": self.hass.states.get(entity),
+                        "new_state": new_state,
                         "old_state": None,
                     },
                 )
