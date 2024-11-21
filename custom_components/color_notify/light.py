@@ -486,7 +486,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                             self._visible_sequences.pop(item.notify_id)
 
                 if item.action == CONF_ADD and item.sequence:
-                    if item.notify_id not in self._active_sequences:
+                    if item.notify_id in self._active_sequences:
                         _LOGGER.warning("%s already in active list", item.notify_id)
 
                     async def restore_priority(

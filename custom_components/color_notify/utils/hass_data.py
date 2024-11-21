@@ -5,7 +5,7 @@ from homeassistant.const import CONF_ENTITY_ID, CONF_TYPE, CONF_UNIQUE_ID
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 
-from ..const import DOMAIN, TYPE_LIGHT, TYPE_POOL
+from ..const import DOMAIN, TYPE_LIGHT, TYPE_POOL, CONF_ENTRY
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,6 +25,7 @@ class HassData:
     @staticmethod
     def get_config_entry_runtime_data(config_entry_id: str) -> dict[str, Any]:
         """Return non-persisted runtime data for a ConfigEntry."""
+        # TODO: There is a method of putting runtime data on ConfigEntry itself...
         return HassData._runtime_data.setdefault(config_entry_id, {})
 
     @callback
@@ -46,23 +47,23 @@ class HassData:
 
     @callback
     @staticmethod
-    def get_all_pools(hass: HomeAssistant) -> list[tuple[str, dict]]:
+    def get_all_pools(hass: HomeAssistant) -> dict[str, dict]:
         """Return all notification pools."""
-        return [
-            (uid, entry)
-            for uid, entry in HassData.get_domain_data(hass).items()
-            if entry.get(CONF_TYPE) == TYPE_POOL
-        ]
+        return {
+            uid: item_info
+            for uid, item_info in HassData.get_domain_data(hass).items()
+            if item_info[CONF_TYPE] == TYPE_POOL
+        }
 
     @callback
     @staticmethod
-    def get_domain_lights(hass: HomeAssistant) -> list:
+    def get_domain_lights(hass: HomeAssistant) -> dict[str, dict]:
         """Return all notification lights."""
-        return [
-            entry
-            for uid, entry in HassData.get_domain_data(hass).items()
-            if entry.get(CONF_TYPE) == TYPE_LIGHT
-        ]
+        return {
+            uid: item_info
+            for uid, item_info in HassData.get_domain_data(hass).items()
+            if item_info[CONF_TYPE] == TYPE_LIGHT
+        }
 
     @callback
     @staticmethod
@@ -70,9 +71,8 @@ class HassData:
         """Return a list of all wrapper light entity_ids."""
         entity_registry: er.EntityRegistry = er.async_get(hass)
         ret: list[str] = []
-        for light in HassData.get_domain_lights(hass):
-            entry_id = light.get(CONF_UNIQUE_ID)
-            entities = er.async_entries_for_config_entry(entity_registry, entry_id)
+        for uid in HassData.get_domain_lights(hass).keys():
+            entities = er.async_entries_for_config_entry(entity_registry, uid)
             ret.extend([entity.entity_id for entity in entities])
         return ret
 
@@ -80,7 +80,10 @@ class HassData:
     @staticmethod
     def get_wrapped_light_entity_ids(hass: HomeAssistant) -> list[str]:
         """Return a list of all wrapped light entity_ids."""
-        return [light[CONF_ENTITY_ID] for light in HassData.get_domain_lights(hass)]
+        return [
+            item_info[CONF_ENTRY].data[CONF_ENTITY_ID]
+            for item_info in HassData.get_domain_lights(hass).values()
+        ]
 
     @callback
     @staticmethod

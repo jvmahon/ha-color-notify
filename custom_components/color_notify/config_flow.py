@@ -32,6 +32,7 @@ from homeassistant.helpers import entity_registry as er, selector
 import homeassistant.helpers.config_validation as cv
 
 from .const import (
+    CONF_ENTRY,
     CONF_DELETE,
     CONF_DYNAMIC_PRIORITY,
     CONF_EXPIRE_ENABLED,
@@ -340,7 +341,7 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
             "],5",
             '{"rgb": [255,255,255]}',
         ]
-        defaults = ADD_LIGHT_DEFAULTS | {CONF_NOTIFY_PATTERN: sample_pattern}
+        defaults = ADD_NOTIFY_DEFAULTS | {CONF_NOTIFY_PATTERN: sample_pattern}
         schema = self.add_suggested_values_to_schema(
             ADD_NOTIFY_SCHEMA, suggested_values=defaults
         )
@@ -505,7 +506,8 @@ class LightOptionsFlowHandler(HassDataOptionsFlow):
 
         pools = HassData.get_all_pools(self.hass)
         pool_items = [
-            {"value": uid, "label": f"{pool[CONF_NAME]}"} for uid, pool in pools
+            {"value": uid, "label": f"{pool_info[CONF_ENTRY].title}"}
+            for uid, pool_info in pools.items()
         ]
         # TODO: Set up pool subscriptions
         # TODO: Update light when pool subscriptions change
