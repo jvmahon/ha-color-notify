@@ -553,7 +553,7 @@ class LightOptionsFlowHandler(HassDataOptionsFlow):
         schema = vol.Schema(schema)
         # Get subscribed pools, filtering out pools that don't exist
         cur_subs: dict = self._config_entry.options.get(CONF_SUBSCRIPTION, {})
-        cur_subs[TYPE_POOL] = [x for x in cur_subs[TYPE_POOL] if x in pools]
+        cur_subs[TYPE_POOL] = [x for x in cur_subs.get(TYPE_POOL, []) if x in pools]
         defaults: dict[str, dict] = SUBSCRIPTION_DEFAULTS | cur_subs
         schema = self.add_suggested_values_to_schema(schema, suggested_values=defaults)
 
