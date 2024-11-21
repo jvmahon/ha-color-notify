@@ -337,8 +337,8 @@ class PoolOptionsFlowHandler(HassDataOptionsFlow):
         # Insert a sample pattern into the Add Notify schema
         sample_pattern = [
             "[",
-            '{"rgb": [255,0,0], "delay": 0.250}',
-            '{"rgb": [0,0,255], "delay": 0.250}',
+            '{"rgb": [255,0,0], "delay": 0.750}',
+            '{"rgb": [0,0,255], "delay": 0.750}',
             "],5",
             '{"rgb": [255,255,255]}',
         ]
@@ -551,7 +551,9 @@ class LightOptionsFlowHandler(HassDataOptionsFlow):
             selector.SelectSelectorConfig(multiple=True, options=pool_items)
         )
         schema = vol.Schema(schema)
+        # Get subscribed pools, filtering out pools that don't exist
         cur_subs: dict = self._config_entry.options.get(CONF_SUBSCRIPTION, {})
+        cur_subs[TYPE_POOL] = [x for x in cur_subs[TYPE_POOL] if x in pools]
         defaults: dict[str, dict] = SUBSCRIPTION_DEFAULTS | cur_subs
         schema = self.add_suggested_values_to_schema(schema, suggested_values=defaults)
 

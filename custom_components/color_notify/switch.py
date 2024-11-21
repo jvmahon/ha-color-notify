@@ -44,12 +44,6 @@ async def async_setup_entry(
     runtime_entities = runtime_data.setdefault(CONF_ENTITIES, {})
 
     entries: dict[str, dict] = config_entry.options.get(CONF_NTFCTN_ENTRIES, {})
-    # Filter to only add new entries
-    new_entities: dict[str, dict] = {
-        uid: data
-        for uid, data in entries.items()
-        if uid.lower() not in runtime_entities
-    }
 
     entities_to_delete: list[str] = config_entry.options.get(CONF_DELETE, [])
     if entities_to_delete:
@@ -65,24 +59,28 @@ async def async_setup_entry(
                     "Entity uid %s missing in notifications list", entity_uid
                 )
         hass.config_entries.async_update_entry(config_entry, options=new_options)
-
-    entities_to_add = [
+    post_del_entries: dict[str, dict] = config_entry.options.get(
+        CONF_NTFCTN_ENTRIES, {}
+    )
+    entities_to_use = [
         (
             uid,
             NotificationSwitchEntity(
                 hass, unique_id=uid, name=data[CONF_NAME], config_entry=config_entry
             ),
         )
-        for uid, data in new_entities.items()
+        for uid, data in entries.items()
         if uid not in entities_to_delete
     ]
 
-    if entities_to_add:
-        async_add_entities([entity for uid, entity in entities_to_add])
+    if entities_to_use:
+        async_add_entities([entity for uid, entity in entities_to_use])
 
         # Track change subscriptions in runtime data
         runtime_subs = runtime_data.setdefault(CONF_CLEANUP, {})
-        for uid, entity in entities_to_add:
+        for uid, entity in entities_to_use:
+            if entity.entity_id in runtime_subs:
+                continue
             runtime_entities[uid] = entity
             runtime_subs[entity.entity_id] = async_track_state_change_event(
                 hass,
