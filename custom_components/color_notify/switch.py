@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
+    ATTR_ENTITY_ID,
     CONF_DELAY_TIME,
     CONF_ENTITIES,
     CONF_ENTITY_ID,
@@ -51,14 +52,14 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Initialize ColorNotify config entry."""
-
-    entities_to_delete: list[str] = config_entry.options.get(CONF_DELETE, [])
-    if entities_to_delete:
+    entity_uids_to_delete: list[str] = config_entry.options.get(CONF_DELETE, [])
+    if entity_uids_to_delete:
         new_options = dict(config_entry.options)
         new_options.pop(CONF_DELETE)
         ntfctns = new_options.get(CONF_NTFCTN_ENTRIES, {})
-        for entity_uid in entities_to_delete:
+        for entity_uid in entity_uids_to_delete:
             HassData.remove_entity(hass, config_entry.entry_id, entity_uid)
+
             if entity_uid in ntfctns:
                 ntfctns.pop(entity_uid)
             else:
@@ -76,26 +77,29 @@ async def async_setup_entry(
             ),
         )
         for uid, data in ntfctn_entries.items()
-        if uid not in entities_to_delete
+        if uid not in entity_uids_to_delete
     ]
 
     if entities_to_use:
         async_add_entities([entity for uid, entity in entities_to_use])
-
+        # Track change subscriptions in runtime data
         runtime_data: dict[str, Any] = HassData.get_config_entry_runtime_data(
             config_entry.entry_id
         )
-
-        # Track change subscriptions in runtime data
         runtime_entities = runtime_data.setdefault(CONF_ENTITIES, {})
+
+        # Mark runtime data for subscriptions by creating empty runtime data
         for uid, entity in entities_to_use:
-            runtime_entities[uid] = RuntimeData(entity=entity)
-        _subscribe_to_runtime_entities(hass, config_entry)
+            if uid not in runtime_entities:
+                runtime_entities[uid] = RuntimeData(entity=entity)
 
     if CONF_FORCE_UPDATE in config_entry.options:
         new_options = dict(config_entry.options)
         new_options.pop(CONF_FORCE_UPDATE)
         hass.config_entries.async_update_entry(config_entry, options=new_options)
+
+    # Update the subscriptions
+    _subscribe_to_runtime_entities(hass, config_entry)
 
 
 async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry):
@@ -125,10 +129,6 @@ async def forward_pooled_update(
             config_entry.title,
             event.data[CONF_ENTITY_ID],
         )
-        # TODO: Handle deleting
-    if new_state is None:
-        # Entity was renamed or deleted so resubscribe
-        _subscribe_to_runtime_entities(hass, config_entry)
 
     subs = HassData.get_config_entry_runtime_data(config_entry.entry_id).get(
         CONF_SUBSCRIPTION, []
@@ -137,25 +137,45 @@ async def forward_pooled_update(
         if callable(sub):
             await sub(event)
 
+    if new_state is None:
+        # Entity was renamed or deleted so resubscribe
+        _subscribe_to_runtime_entities(hass, config_entry)
+
 
 @callback
 def _subscribe_to_runtime_entities(hass: HomeAssistant, config_entry: ConfigEntry):
     """Handle re-subscribing pool to entities."""
     runtime_data = HassData.get_config_entry_runtime_data(config_entry.entry_id)
+    runtime_entities = runtime_data.setdefault(CONF_ENTITIES, {})
     sub_changes: list[RuntimeData] = [
-        entity_data
-        for entity_data in runtime_data[CONF_ENTITIES].values()
-        if entity_data.subbed_entity_id != entity_data.entity.entity_id
+        (uid, entity_data)
+        for uid, entity_data in runtime_data[CONF_ENTITIES].items()
+        if entity_data.entity is None
+        or entity_data.subbed_entity_id != entity_data.entity.entity_id
     ]
-    for entity_data in sub_changes:
+    for uid, entity_data in sub_changes:
+        # Remove the entity from runtime data if it no longer exists
+        if entity_data.entity is None:
+            runtime_entities.pop(uid)
+            hass.bus.async_fire(
+                "state_changed",
+                {
+                    ATTR_ENTITY_ID: entity_data.subbed_entity_id,
+                    "new_state": None,
+                    "old_state": None,
+                },
+            )
+
         if callable(entity_data.unsub):
             entity_data.unsub()
-        entity_data.subbed_entity_id = entity_data.entity.entity_id
-        entity_data.unsub = async_track_state_change_event(
-            hass,
-            entity_data.subbed_entity_id,
-            partial(forward_pooled_update, hass, config_entry),
-        )
+
+        if entity_data.entity is not None:
+            entity_data.subbed_entity_id = entity_data.entity.entity_id
+            entity_data.unsub = async_track_state_change_event(
+                hass,
+                entity_data.subbed_entity_id,
+                partial(forward_pooled_update, hass, config_entry),
+            )
 
 
 class NotificationSwitchEntity(ToggleEntity, RestoreEntity):

@@ -94,7 +94,6 @@ class HassData:
         entities = HassData.get_all_entities(hass, config_entry_id)
         entity_to_delete = entities.get(unique_id)
         if entity_to_delete is not None:
-            HassData.clear_config_entry_runtime_data(config_entry_id)
             entity_registry = er.async_get(hass)
             entity_registry.async_remove(entity_to_delete.entity_id)
         else:

@@ -514,6 +514,11 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                         sequence = self._active_sequences.get(notify_id)
                         if sequence is not None:
                             sequence.priority = priority
+                            _LOGGER.debug(
+                                "Restoring %s priority to %d",
+                                notify_id,
+                                sequence.priority,
+                            )
                             self._sort_active_sequences()
                             await self._wake_loop()
 
@@ -528,6 +533,12 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                             and not item.sequence.loops_forever
                         )
                         item.sequence.priority += MAXIMUM_PRIORITY
+                        _LOGGER.debug(
+                            "Boosting %s priority to %d for %f seconds",
+                            item.notify_id,
+                            item.sequence.priority,
+                            peek_duration,
+                        )
                         if not auto_clears:
                             async_call_later(self.hass, peek_duration, restore_priority)
 
@@ -606,7 +617,11 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         """Handle a subscribed notification changing state."""
         notify_id = event.data[CONF_ENTITY_ID]
         if event.data.get("new_state") is None:
-            _LOGGER.warning("%s no new state, renamed?", str(self))
+            _LOGGER.warning(
+                "[%s] No new state for [%s], renamed or deleted?",
+                self._config_entry.title,
+                notify_id,
+            )
             await self._remove_sequence(notify_id)
             return
 
