@@ -225,7 +225,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         self._attr_unique_id: str = unique_id
         self._config_entry: ConfigEntry = config_entry
 
-        self._visible_sequences: dict[str, _NotificationSequence] = {}
+        self._running_sequences: dict[str, _NotificationSequence] = {}
         self._active_sequences: dict[str, _NotificationSequence] = {}
         self._last_set_color: ColorInfo | None = None
         self._dynamic_priority: bool = self._config_entry.options.get(
@@ -358,7 +358,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         """Return awaitable events for the sequences on the current light."""
         return {
             anim.wait()
-            for anim in self._visible_sequences.values()
+            for anim in self._running_sequences.values()
             if anim and anim.is_running()
         }
 
@@ -372,45 +372,52 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         )
 
     @callback
-    def _get_top_sequence(self) -> _NotificationSequence:
-        """Return the top priority active sequence."""
-        return next(iter(self._active_sequences.values()))
+    def _get_top_sequences(self) -> list[_NotificationSequence]:
+        """Return the list of top priority active sequences."""
+        ret: list[_NotificationSequence] = []
+        top_prio: int = 0
+        for sequence in self._active_sequences.values():
+            if sequence.priority < top_prio:
+                break
+            top_prio = sequence.priority
+            ret.append(sequence)
+        return ret
 
     async def _process_sequence_list(self):
         """Process the sequence list for the current display color and set it on the bulb."""
-        if len(self._active_sequences) > 0:
-            top_sequence = self._get_top_sequence()
+        top_sequences: list[_NotificationSequence] = self._get_top_sequences()
+        if len(top_sequences) > 0:
+            top_sequence = top_sequences[0]
             top_priority = top_sequence.priority
-            for next_id, next_sequence in self._active_sequences.items():
-                if next_sequence.priority < top_priority:
-                    break
-                # If highest priority sequence is not in the active list then put it there.
-                if next_id not in self._visible_sequences:
-                    await next_sequence.run(self.hass, self._config_entry)
-                    self._visible_sequences[next_id] = next_sequence
 
+            # Ensure all top sequences are in the running list
+            for sequence in top_sequences:
+                if (
+                    sequence.notify_id is not None
+                    and sequence.notify_id not in self._running_sequences
+                ):
+                    await sequence.run(self.hass, self._config_entry)
+                    self._running_sequences[sequence.notify_id] = sequence
+
+            # Stop any sequences that are not top priority
             remove_list = {
-                k: anim
-                for k, anim in self._visible_sequences.items()
-                if k not in self._active_sequences
-                or (
-                    anim is not None
-                    and anim.priority < top_priority
-                    and anim.notify_id != STATE_OFF
-                )
+                notify_id: anim
+                for notify_id, anim in self._running_sequences.items()
+                if notify_id not in self._active_sequences
+                or (anim is not None and anim.priority < top_priority)
             }
 
             # Stop animations that are lower priority than the current
             for seq_id, anim in remove_list.items():
                 if anim:
                     await anim.stop()
-                self._visible_sequences.pop(seq_id)
+                self._running_sequences.pop(seq_id)
 
-            # TODO: color mixing?
+            # TODO: color mixing between active sequences? For now just show the top sequence.
             # # Now combine the colors
             # colors = [
             #     anim.color
-            #     for anim in self._visible_sequences.values()
+            #     for anim in self._running_sequences.values()
             #     if anim is not None
             # ]
             # color = NotificationLightEntity.mix_colors(colors)
@@ -460,13 +467,14 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             if (
                 cycle_delay
                 and cycle_canceler is None
-                and len(self._visible_sequences) > 1
+                and len(self._running_sequences) > 1
             ):
 
                 async def queue_cycle(_):
                     nonlocal cycle_canceler
                     cycle_canceler = None
-                    await self._task_queue.put(_QueueEntry(ACTION_CYCLE_SAME))
+                    if len(self._running_sequences) > 1:
+                        await self._task_queue.put(_QueueEntry(ACTION_CYCLE_SAME))
 
                 cycle_canceler = async_call_later(self.hass, cycle_delay, queue_cycle)
 
@@ -483,13 +491,15 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             )
             if q_task in done:
                 item: _QueueEntry = await q_task
-                _LOGGER.info("Got queue item: %s", item)
+                _LOGGER.info(
+                    "[%s] Got queue item: [%s]", self._config_entry.title, item
+                )
                 if item.action == CONF_DELETE:
                     if item.notify_id in self._active_sequences:
                         anim = self._active_sequences.pop(item.notify_id)
-                        if item.notify_id in self._visible_sequences:
+                        if item.notify_id in self._running_sequences:
                             await anim.stop()
-                            self._visible_sequences.pop(item.notify_id)
+                            self._running_sequences.pop(item.notify_id)
 
                 if item.action == CONF_ADD and item.sequence:
                     if item.notify_id in self._active_sequences:
@@ -504,8 +514,8 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
                         sequence = self._active_sequences.get(notify_id)
                         if sequence is not None:
                             sequence.priority = priority
-                        self._sort_active_sequences()
-                        await self._wake_loop()
+                            self._sort_active_sequences()
+                            await self._wake_loop()
 
                     # Temporarily give high priority for peeks
                     if (
@@ -726,8 +736,8 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
 
         priority = self._light_on_priority
         if self._dynamic_priority:
-            top_sequence: _NotificationSequence = self._get_top_sequence()
-            priority = max(priority, top_sequence.priority) + 0.5
+            # Dynamic priority gets 0.5 boost of top priority to ensure light-on always shows.
+            priority = max(priority, self._get_top_sequences()[0].priority) + 0.5
 
         self._last_on_rgb = rgb
         sequence = replace(
