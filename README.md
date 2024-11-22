@@ -89,11 +89,11 @@ Notifications can be customized with colors, priorities, and display patterns. P
 
 ## Usage
 
-Set up a new notification pool (a collection of notifications) by adding a new Color Notify integration, or clicking "Add Hub" when on the Color Notifiy integration settings page. To rename a notification 'reconfigure' it rather than 'rename' it from 3-dot menu.
+Set up a new notification pool (a collection of notifications) by adding a new Color Notify integration, or clicking "Add Hub" when on the Color Notify integration settings page.
 
 To add new notifications 'configure' a notification pool.
 
-To change a light's subscriptions 'configure' a light.
+To change the notification a light is subscribed to 'configure' the light.
 
 To activate a notification, simply switch on the desired notification’s switch entity.
 
@@ -106,7 +106,7 @@ To activate a notification, simply switch on the desired notification’s switch
 
 - Separate RGB and brightness controls for animations.
 - Add services for notification management (e.g., clear notifications, cycle notifications).
-- Fade control
+- Fade control, non-RGB configs (hsv, color temp)
 
 ---
 
