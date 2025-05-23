@@ -1,6 +1,7 @@
 """Light platform for ColorNotify integration."""
 
 import asyncio
+import time
 from collections.abc import Callable, Coroutine
 from copy import copy
 from dataclasses import dataclass, replace
@@ -59,6 +60,7 @@ from .const import (
     CONF_RGB_SELECTOR,
     CONF_SUBSCRIPTION,
     DEFAULT_PRIORITY,
+    EXPECTED_SERVICE_CALL_TIMEOUT,
     INIT_STATE_UPDATE_DELAY_SEC,
     MAXIMUM_PRIORITY,
     OFF_RGB,
@@ -102,16 +104,13 @@ class _NotificationSequence:
     ) -> None:
         self.priority: int = priority
 
-        self._sequence: LightSequence = LightSequence.create_from_pattern(pattern)
+        self._pattern: list[str | ColorInfo] = pattern[:]
+        self._sequence: LightSequence = LightSequence()
         self._notify_id: str | None = notify_id
         self._clear_delay: float | None = clear_delay
         self._task: asyncio.Task | None = None
         self._stop_event: asyncio.Event | None = None
-        self._color: ColorInfo = (
-            self._sequence.color
-            if self._sequence.color is not None
-            else ColorInfo(OFF_RGB, 0)
-        )
+        self._color: ColorInfo = ColorInfo(OFF_RGB, 0)
         self._peek_enabled: bool = peek_enabled
         self._step_finished: asyncio.Event = asyncio.Event()
         self._step_finished.set()
@@ -134,10 +133,22 @@ class _NotificationSequence:
     def wait(self) -> Coroutine:
         return self._step_finished.wait()
 
+    def reset(self):
+        """Resets the notification sequence to the beginning"""
+        self._sequence: LightSequence = LightSequence.create_from_pattern(self._pattern)
+        self._color: ColorInfo = (
+            self._sequence.color
+            if self._sequence.color is not None
+            else ColorInfo(OFF_RGB, 0)
+        )
+
     async def _worker_func(self, stop_event: asyncio.Event):
         """Coroutine to run the animation until finished or interrupted."""
         # TODO: Is this extra task needed around sequence?
         done = False
+
+        # Read in the pattern and init
+        self.reset()
         try:
             while not done and not stop_event.is_set():
                 self._step_finished.clear()
@@ -231,6 +242,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         self._dynamic_priority: bool = self._config_entry.options.get(
             CONF_DYNAMIC_PRIORITY, True
         )
+        self._response_expected_expire_time: float = 0.0
 
         self._task_queue: asyncio.Queue[_QueueEntry] = asyncio.Queue()
         self._task: asyncio.Task | None = None
@@ -337,6 +349,8 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             self.async_schedule_update_ha_state(True)
             if self.is_on:
                 self.hass.async_create_task(self.async_turn_on())
+            else:
+                self.hass.async_create_task(self.async_turn_off())
 
     async def async_will_remove_from_hass(self):
         """Clean up before removal from HASS."""
@@ -425,6 +439,12 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             if color != self._last_set_color:
                 if await self._wrapped_light_turn_on(**color.light_params):
                     self._last_set_color = color
+                else:
+                    _LOGGER.error(
+                        "%s failed to set wrapped light, real state unknown", self.name
+                    )
+                    await asyncio.sleep(INIT_STATE_UPDATE_DELAY_SEC)
+                    await self._reset_running_sequences()
 
         else:
             _LOGGER.error("Sequence list empty for %s", self.name)
@@ -611,6 +631,14 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         """Remove a sequence from this light."""
         await self._task_queue.put(_QueueEntry(notify_id=notify_id, action=CONF_DELETE))
 
+    async def _reset_running_sequences(self) -> None:
+        """Immediately reset the running sequence list"""
+        while self._running_sequences:
+            seq_id, anim = self._running_sequences.popitem()
+            await anim.stop()
+        self._last_set_color = None
+        await self._wake_loop()
+
     async def _handle_notification_change(
         self, event: Event[EventStateChangedData]
     ) -> None:
@@ -640,6 +668,12 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         """Handle the underlying wrapped light changing state."""
         if event.data["old_state"] is None:
             await self._handle_wrapped_light_init()
+        elif time.time() > self._response_expected_expire_time:
+            _LOGGER.warning(
+                "%s received unexpected event %s", self.entity_id, str(event.data)
+            )
+            # Current state is unknown, just reset
+            await self._reset_running_sequences()
 
     async def _handle_wrapped_light_init(self) -> None:
         """Handle wrapped light entity initializing."""
@@ -659,47 +693,55 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
     async def _wrapped_light_turn_on(self, **kwargs: Any) -> bool:
         """Turn on the underlying wrapped light entity."""
         if kwargs.get(ATTR_RGB_COLOR, []) == OFF_RGB:
-            await self._wrapped_light_turn_off()
-        else:
-            if not self._wrapped_init_done:
-                _LOGGER.warning(
-                    "Can't turn on light before it is initialized: %s", self.name
-                )
-                return False
-            if (
-                ATTR_RGB_COLOR in kwargs
-                and ATTR_BRIGHTNESS not in kwargs
-                and ColorMode.RGB
-                not in (
-                    self._attr_supported_color_modes or {}
-                )  # wrapped bulb's real capabilities
-            ):
-                # We want low RGB values to be dim, but HomeAssistant needs a separate brightness value for that.
-                # TODO: Do we actually want this?
-                # If brightness was not passed in and bulb doesn't support RGB then convert to HS + Brightness.
-                rgb = kwargs.pop(ATTR_RGB_COLOR)
-                h, s, v = color_RGB_to_hsv(*rgb)
-                # Re-scale 'v' from 0-100 to 0-255
-                brightness = (255 / 100) * v
-                kwargs[ATTR_HS_COLOR] = (h, s)
-                kwargs[ATTR_BRIGHTNESS] = brightness
+            return await self._wrapped_light_turn_off()
 
-            await self.hass.services.async_call(
-                Platform.LIGHT,
-                SERVICE_TURN_ON,
-                service_data={ATTR_ENTITY_ID: self._wrapped_entity_id} | kwargs,
+        if not self._wrapped_init_done:
+            _LOGGER.warning(
+                "Can't turn on light before it is initialized: %s", self.name
             )
+            return False
+
+        if (
+            ATTR_RGB_COLOR in kwargs
+            and ATTR_BRIGHTNESS not in kwargs
+            and ColorMode.RGB
+            not in (
+                self._attr_supported_color_modes or {}
+            )  # wrapped bulb's real capabilities
+        ):
+            # We want low RGB values to be dim, but HomeAssistant needs a separate brightness value for that.
+            # TODO: Do we actually want this?
+            # If brightness was not passed in and bulb doesn't support RGB then convert to HS + Brightness.
+            rgb = kwargs.pop(ATTR_RGB_COLOR)
+            h, s, v = color_RGB_to_hsv(*rgb)
+            # Re-scale 'v' from 0-100 to 0-255
+            brightness = (255 / 100) * v
+            kwargs[ATTR_HS_COLOR] = (h, s)
+            kwargs[ATTR_BRIGHTNESS] = brightness
+
+        self._response_expected_expire_time = (
+            time.time() + EXPECTED_SERVICE_CALL_TIMEOUT
+        )
+        await self.hass.services.async_call(
+            Platform.LIGHT,
+            SERVICE_TURN_ON,
+            service_data={ATTR_ENTITY_ID: self._wrapped_entity_id} | kwargs,
+        )
         return True
 
-    async def _wrapped_light_turn_off(self, **kwargs: Any) -> None:
+    async def _wrapped_light_turn_off(self, **kwargs: Any) -> bool:
         """Turn off the underlying wrapped light entity."""
         if not self._wrapped_init_done:
-            return
+            return False
+        self._response_expected_expire_time = (
+            time.time() + EXPECTED_SERVICE_CALL_TIMEOUT
+        )
         await self.hass.services.async_call(
             Platform.LIGHT,
             SERVICE_TURN_OFF,
             service_data={ATTR_ENTITY_ID: self._wrapped_entity_id} | kwargs,
         )
+        return True
 
     @staticmethod
     def _rgb_to_hs_brightness(
