@@ -114,6 +114,7 @@ class _NotificationSequence:
         self._peek_enabled: bool = peek_enabled
         self._step_finished: asyncio.Event = asyncio.Event()
         self._step_finished.set()
+        self.reset()  # Set initial color from pattern
 
     def __repr__(self) -> str:
         return f"Animation Pri: {self.priority} Sequence: {self._sequence}"
@@ -639,6 +640,11 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         self._last_set_color = None
         await self._wake_loop()
 
+    def _reset_expected_response_timeout(self):
+        self._response_expected_expire_time = (
+            time.time() + EXPECTED_SERVICE_CALL_TIMEOUT
+        )
+
     async def _handle_notification_change(
         self, event: Event[EventStateChangedData]
     ) -> None:
@@ -719,9 +725,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
             kwargs[ATTR_HS_COLOR] = (h, s)
             kwargs[ATTR_BRIGHTNESS] = brightness
 
-        self._response_expected_expire_time = (
-            time.time() + EXPECTED_SERVICE_CALL_TIMEOUT
-        )
+        self._reset_expected_response_timeout()
         await self.hass.services.async_call(
             Platform.LIGHT,
             SERVICE_TURN_ON,
@@ -733,9 +737,7 @@ class NotificationLightEntity(LightEntity, RestoreEntity):
         """Turn off the underlying wrapped light entity."""
         if not self._wrapped_init_done:
             return False
-        self._response_expected_expire_time = (
-            time.time() + EXPECTED_SERVICE_CALL_TIMEOUT
-        )
+        self._reset_expected_response_timeout()
         await self.hass.services.async_call(
             Platform.LIGHT,
             SERVICE_TURN_OFF,

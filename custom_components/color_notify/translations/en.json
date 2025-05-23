@@ -85,7 +85,6 @@
         }
       },
       "modify_notification": {
-        "_comment": "[%key:component] references don't seem to work for custom_component. It'd be nice if this could reference above.",
         "description": "Set up the notification below.\n&bull;Color Picker can set a solid color or look up RGB values for pattern use.\n&bull;Create a pattern by using the +Add button.\n&bull;Auto-Clear with a 0s timeout clears immediately after pattern finishes.\n&bull;Any other timeout is measured from notification start.\n&bull;Larger numbers are higher priority.",
         "data": {
           "name": "Name for notification",
@@ -132,8 +131,5 @@
         }
       }
     }
-  },
-  "error": {
-    "pattern_error": "Error parsing pattern! {error_detail}"
   }
 }
