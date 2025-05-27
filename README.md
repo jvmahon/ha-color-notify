@@ -53,7 +53,7 @@ Lights can be 'configured' to update light options or subscribe a light to new n
 ### Setting up a New Light Entity
 
 Set up a new light entity by adding a new Color Notify integration, or clicking "Add Hub" when on the Color Notifiy integration settings page.
-When setting up a new Color Notify light entity, select an existing light to wrap. This will create a new entity with enhanced notification capabilities. Use this new entity in place of the original light for notification functionality.
+When setting up a new Color Notify light entity, select an existing light to wrap. This will create a new entity with enhanced notification capabilities. Use this new entity in place of the original light for notification functionality. ***Color Notify will fight any changes you make to the 'real' bulb. Only interact with the new 'wrapper' entity!***
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/cobryan05/ha-color-notify/refs/heads/main/images/new_light_settings.png?raw=true" alt="New Light Setup Example" width="60%">
