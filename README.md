@@ -32,8 +32,9 @@ It wraps an existing light and creates a new entity that supports colored and an
 1. Copy the integration files to `custom_components/ha-color-notify` in your Home Assistant configuration.
 2. Restart Home Assistant.
 
-### HACS Installation
-1. Add `https://github.com/cobryan05/ha-color-notify` as a custom repository in HACS (select type "Integration").
+### HACS Installation 
+*(Color Notify is now a default HACS repo so step #1 should be unnecessary)*
+1. Add `https://github.com/cobryan05/ha-color-notify` as a custom repository in HACS (select type "Integration")
 2. Search for Color Notify in HACS and download it.
 2. Restart Home Assistant.
 
