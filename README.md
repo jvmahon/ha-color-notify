@@ -21,7 +21,7 @@ It wraps an existing light and creates a new entity that supports colored and an
 - **Toggleable Notifications**: Notifications are represented as Switch entities. Simply turn on and off notifications an ColorNotifiy will sort out showing it on the appropriate lights.
 - **Subscription-based Notifications**: Create notifications in "pools". Multiple pools can be created each containing multiple notiifcations, and wrapped lights can subscribe to each individual notification or entire pools at once.
 - **Priority-based Notifications**: Assign a priority to each notification, so only the highest-priority active notification is shown. Lower-priority notifications can optionally temporarily display when activated.
-- **Standard Light Control**: The wrapped light continues to function as normal, with on/off and color controls.
+- **Standard Light Control**: The wrapped light can continue to be used as a normal light, with on/off and color controls, just use the created wrapper light entity anywhere in place of the 'real' light entity.
 - **Customizable Colors and Effects**: Configure colors, brightness levels, and animations for each notification. Animations can include loops and timed steps for complex sequences.
 
 ---
