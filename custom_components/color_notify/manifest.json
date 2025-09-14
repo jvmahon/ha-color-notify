@@ -1,11 +1,11 @@
 {
-  "domain": "color_notify",
-  "name": "Color Notify",
+  "domain": "color_notify_inovelli",
+  "name": "Color Notify for Inovelli",
   "codeowners": ["@cobryan05"],
   "config_flow": true,
-  "documentation": "https://github.com/cobryan05/ha-color-notify",
+  "documentation": "https://github.com/jvmahon/ha-color-notify-inovelli",
   "integration_type": "hub",
   "iot_class": "calculated",
-  "issue_tracker": "https://github.com/cobryan05/ha-color-notify/issues",
+  "issue_tracker": "https://github.com/jvmahon/ha-color-notify-inovelli/issues",
   "version": "0.1"
 }
